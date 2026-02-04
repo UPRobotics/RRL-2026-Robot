@@ -1,11 +1,7 @@
 
-# 🤖 ROS 2 Mobile Manipulator Architecture
+# 🤖 ROS 2 Robot Architecture
 
 > **Sistema de control modular para robot móvil con brazo manipulador (8 DOF) con Abstracción de Hardware y Autodetección de Puertos.**
-
-![ROS2](https://img.shields.io/badge/ROS_2-Humble%2FIron-22314E?style=for-the-badge&logo=ros&logoColor=white)
-![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=white)
-![Platform](https://img.shields.io/badge/Platform-Linux%20%2F%20Jetson-green?style=for-the-badge)
 
 ## 📖 Descripción General
 
