@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>camera_pkg</name>
+  <version>1.0.0</version>
+  <description>ROS2 multi-camera viewer with RTSP and thermal camera support</description>
+  <maintainer email="todo@todo.com">rrl</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- ROS2 dependencies -->
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+
+  <!-- System dependencies (resolved by pkg-config / cmake) -->
+  <build_depend>libsdl2-dev</build_depend>
+  <build_depend>libsdl2-ttf-dev</build_depend>
+  <build_depend>libavcodec-dev</build_depend>
+  <build_depend>libavformat-dev</build_depend>
+  <build_depend>libswscale-dev</build_depend>
+  <build_depend>libavutil-dev</build_depend>
+  <build_depend>libspdlog-dev</build_depend>
+  <build_depend>nlohmann-json3-dev</build_depend>
+
+  <exec_depend>libsdl2-2.0-0</exec_depend>
+  <exec_depend>libsdl2-ttf-2.0-0</exec_depend>
+  <exec_depend>libavcodec58</exec_depend>
+  <exec_depend>libavformat58</exec_depend>
+  <exec_depend>libswscale5</exec_depend>
+  <exec_depend>libavutil56</exec_depend>
+  <exec_depend>libspdlog-dev</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
