@@ -1,0 +1,138 @@
+{
+  "cameras": [
+    {
+      "enabled": true,
+      "id": "camera1",
+      "ip": "192.168.0.200",
+      "name": "Camera 1",
+      "port": 554,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://192.168.0.200:554/stream1",
+      "url_lowres": "rtsp://192.168.0.200:554/stream2"
+    },
+    {
+      "enabled": true,
+      "id": "camera2",
+      "ip": "192.168.0.201",
+      "name": "Camera 2",
+      "port": 554,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://192.168.0.201:554/stream1",
+      "url_lowres": "rtsp://192.168.0.201:554/stream2"
+    },
+    {
+      "enabled": true,
+      "id": "camera3",
+      "ip": "192.168.0.202",
+      "name": "Camera 3",
+      "port": 554,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://192.168.0.202:554/stream1",
+      "url_lowres": "rtsp://192.168.0.202:554/stream2"
+    },
+    {
+      "enabled": true,
+      "id": "camera4",
+      "ip": "192.168.0.203",
+      "name": "Camera 4",
+      "port": 554,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://192.168.0.203:554/stream1",
+      "url_lowres": "rtsp://192.168.0.203:554/stream2"
+    },
+    {
+      "enabled": true,
+      "id": "camera5",
+      "ip": "192.168.0.204",
+      "name": "Camera 5",
+      "port": 554,
+      "rotation_deg": 180,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://admin:admin@192.168.0.204:554/profile0",
+      "url_lowres": "rtsp://admin:admin@192.168.0.204:554/profile1"
+    },
+    {
+      "enabled": true,
+      "id": "camera6",
+      "ip": "192.168.0.205",
+      "name": "Camera 6",
+      "port": 554,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://admin:admin@192.168.0.205:554/profile0",
+      "url_lowres": "rtsp://admin:admin@192.168.0.205:554/profile1"
+    },
+    {
+      "enabled": true,
+      "id": "camera7",
+      "ip": "192.168.0.206",
+      "name": "Camera 7",
+      "port": 554,
+      "rotation_deg": 180,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://admin:admin@192.168.0.206:554/profile0",
+      "url_lowres": "rtsp://admin:admin@192.168.0.206:554/profile1"
+    },
+    {
+      "enabled": true,
+      "id": "thermal",
+      "name": "Thermal Camera",
+      "ip": "",
+      "port": 0,
+      "rotation_deg": 0,
+      "source_type": "thermal",
+      "ros_topic": "/thermal_data",
+      "url_highres": "",
+      "url_lowres": ""
+    }
+  ],
+  "console": {
+    "auto_open_on_startup": false,
+    "last_console_height": 500,
+    "last_console_width": 800,
+    "last_console_x": 100,
+    "last_console_y": 100,
+    "remember_position": true
+  },
+  "display": {
+    "fullscreen_on_startup": false,
+    "last_window_height": 720,
+    "last_window_width": 1280,
+    "last_window_x": -1,
+    "last_window_y": -1,
+    "remember_window_position": true,
+    "remember_window_size": true
+  },
+  "grid_2x2": {
+    "slots": [
+      -1,
+      -1,
+      -1,
+      -1
+    ]
+  },
+  "keybindings": {
+    "camera_next": "Right",
+    "camera_previous": "Left",
+    "quit": "Q",
+    "quit_alt": "Escape",
+    "toggle_console": "C",
+    "toggle_fullscreen": "F",
+    "view_mode_2x2": "2",
+    "view_mode_fullscreen": "1",
+    "view_mode_grid": "3"
+  },
+  "streaming": {
+    "connection_timeout_ms": 10000,
+    "default_quality": "high",
+    "frame_buffer_size": 1,
+    "frame_timeout_ms": 5000,
+    "max_reconnect_attempts": 5,
+    "ping_timeout_ms": 1000,
+    "reconnect_delay_ms": 2000
+  }
+}
