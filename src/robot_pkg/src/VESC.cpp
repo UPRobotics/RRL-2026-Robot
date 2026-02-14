@@ -181,7 +181,7 @@ bool VESC::get_telemetry(VESCData& out) {
 
     out.temp_fet      = get_i16(1) / 10.0f;
     out.current_motor = get_i32(5) / 100.0f;
-    out.rpm           = get_i32(21) / 1000.0f;
+    out.rpm           = get_i32(23);
     out.input_voltage = get_i16(29) / 10.0f;
 
     return true;

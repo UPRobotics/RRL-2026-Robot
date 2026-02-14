@@ -7,6 +7,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "robot_pkg/VESC.hpp"
+#include "std_msgs/msg/float32.hpp" 
+
 
 using namespace std::chrono_literals;
 using namespace LibSerial;
@@ -33,10 +35,10 @@ public:
             50ms, std::bind(&ArmNode::timer_callback, this));
 
 
-        button_A_subscriber = create_subscription<std_msgs::msg::Bool>(
-        "/arm/a_button", 10,
-        [this](const std_msgs::msg::Bool::SharedPtr msg) {
-            test = msg->data;
+        y_Axis_subscriber = create_subscription<std_msgs::msg::Float32>(
+        "/arm/y_axis", 10,
+        [this](const std_msgs::msg::Float32::SharedPtr msg) {
+            this->desired_rpms = msg->data;
         }
 );
     }
@@ -49,36 +51,39 @@ public:
 private:
     void timer_callback() {
 
-        VESCData m_telemetry;
-
-        if(vesc_.get_telemetry(m_telemetry)){
-            RCLCPP_INFO(get_logger(),
-            "RPM: %d | Current: %.2f A | Voltage: %.2f V | Temp: %.1f C",
-            m_telemetry.rpm,
-            m_telemetry.current_motor,
-            m_telemetry.input_voltage,
-            m_telemetry.temp_fet);
-            //RCLCPP_DEBUG(this->get_logger(), "Sending RPM: %d", 15000);
-        }
-        RCLCPP_DEBUG(this-> get_logger(), "Boolean data %d", vesc_.get_telemetry(m_telemetry));
-
-
-
-        int32_t target_rpm = 1500; 
-        if(test){
-        vesc_.set_rpm(target_rpm);
-        }else{
-        vesc_.set_rpm(0);
-        }     
+        telemetry();
+//        int32_t target_rpm = 1500; 
+      //  if(test){
+        vesc_.set_rpm(desired_rpms * 1500);
+      //  }else{
+//vesc_.set_rpm(0);
+//        }     
     }
+
+    void telemetry(){
+            VESCData m_telemetry;
+
+            if(vesc_.get_telemetry(m_telemetry)){
+            RCLCPP_INFO(get_logger(),
+            "RPM: %d | Subscription: %.2f",
+            m_telemetry.rpm,
+            desired_rpms);
+            //RCLCPP_DEBUG(this->get_logger(), "Sending RPM: %d", 15000);
+            }
+        }    
+
+
     VESC vesc_;
 
     /* Publishers and subscribers */
     rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr button_A_subscriber;
+    //rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr button_A_subscriber;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr y_Axis_subscriber;
 
     /* A button test*/
     bool test = false;
+
+    float desired_rpms = 0.0f;
 
     // ---- Parameters ----
     std::string port_;
