@@ -65,9 +65,10 @@ private:
 
             if(vesc_.get_telemetry(m_telemetry)){
             RCLCPP_INFO(get_logger(),
-            "RPM: %d | Subscription: %.2f",
+            "RPM: %d | Subscription: %.2f | Motor id: %f",
             m_telemetry.rpm,
-            desired_rpms);
+            desired_rpms,
+            m_telemetry.motor_id);
             //RCLCPP_DEBUG(this->get_logger(), "Sending RPM: %d", 15000);
             }
         }    

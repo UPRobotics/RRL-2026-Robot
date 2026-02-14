@@ -184,6 +184,9 @@ bool VESC::get_telemetry(VESCData& out) {
     out.rpm           = get_i32(23);
     out.input_voltage = get_i16(29) / 10.0f;
 
+    if(payload.size() > 58){
+        out.motor_id = payload[58];
+    }
     return true;
 }
 

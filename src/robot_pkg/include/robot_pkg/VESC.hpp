@@ -15,7 +15,7 @@ struct VESCData {
     float temp_motor = 0.0f;
     float current_motor = 0.0f;
     float current_in = 0.0f;
-    float current_id = 0.0f;
+    float motor_id = 0.0f;
     float current_iq = 0.0f;
     float duty_cycle = 0.0f;
     int32_t rpm = 0;
