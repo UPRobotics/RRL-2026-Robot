@@ -1,3 +1,4 @@
+
 import serial
 import struct
 import time
@@ -13,7 +14,7 @@ SERIAL_PORTS = {
         "direction": 1, 
         "target_rpm": 1000,
         "control_mode": "duty_cycle",  # "rpm" o "duty_cycle"
-        "target_duty_cycle": 0.14  # Solo usado si control_mode es "duty_cycle", valor entre -1.0 y 1.0
+        "target_duty_cycle": 0.1  # Solo usado si control_mode es "duty_cycle", valor entre -1.0 y 1.0
     },
     # Ejemplo con duty cycle:
     # "/dev/ttyACM6": {
@@ -150,6 +151,11 @@ class VESCController:
             if len(data) < 54:
                 print(f"Datos demasiado cortos: {len(data)} bytes, esperado al menos 54")
                 return None
+            if len(data) > 58:
+                print(f"Byte 58: {data[58]:02x} (decimal: {data[58]})")
+            else:
+                print(f"El byte 58 no existe, datos tienen solo {len(data)} bytes")
+            print("-------------------------------------------------------")
 
             vesc_data = {
                 "input_voltage": struct.unpack(">h", data[27:29])[0] / 10.0,
@@ -339,4 +345,4 @@ if __name__ == "__main__":
             vesc.disconnect()
         if aggregator_thread:
             aggregator_thread.join()
-        print("Comunicación con VESC detenida.")
+        print("Comunicación con VESC detena.")
