@@ -14,6 +14,6 @@ class BODY{
     public:
         BODY();
         ~BODY();
-}
+};
 
 #endif

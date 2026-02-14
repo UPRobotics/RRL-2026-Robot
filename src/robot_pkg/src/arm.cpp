@@ -22,14 +22,16 @@ public:
       declare_parameter<int>("timeout", 1000)){
 
         if (vesc_.connect()) {
-            RCLCPP_INFO(this->get_logger(), "VESC connected successfully.");
+            RCLCPP_INFO(this->get_logger(), "VESC connected.");
         } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to connect to VESC! Check port and permissions.");
+            RCLCPP_ERROR(this->get_logger(), "Failed to connect to VESC!");
         }
+
 
         // Create a timer to send commands at 20Hz (every 50ms)
         timer_ = this->create_wall_timer(
             50ms, std::bind(&ArmNode::timer_callback, this));
+
 
         button_A_subscriber = create_subscription<std_msgs::msg::Bool>(
         "/arm/a_button", 10,
@@ -46,13 +48,28 @@ public:
 
 private:
     void timer_callback() {
+
+        VESCData m_telemetry;
+
+        if(vesc_.get_telemetry(m_telemetry)){
+            RCLCPP_INFO(get_logger(),
+            "RPM: %d | Current: %.2f A | Voltage: %.2f V | Temp: %.1f C",
+            m_telemetry.rpm,
+            m_telemetry.current_motor,
+            m_telemetry.input_voltage,
+            m_telemetry.temp_fet);
+            //RCLCPP_DEBUG(this->get_logger(), "Sending RPM: %d", 15000);
+        }
+        RCLCPP_DEBUG(this-> get_logger(), "Boolean data %d", vesc_.get_telemetry(m_telemetry));
+
+
+
         int32_t target_rpm = 1500; 
         if(test){
         vesc_.set_rpm(target_rpm);
         }else{
         vesc_.set_rpm(0);
         }     
-        RCLCPP_DEBUG(this->get_logger(), "Sending RPM: %d", target_rpm);
     }
     VESC vesc_;
 

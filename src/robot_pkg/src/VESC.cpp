@@ -135,6 +135,61 @@ std::vector<uint8_t> VESC::find_packet(const std::vector<uint8_t>& response){
     return {};
 }
 
+void VESC::request_values() {
+    if (!running || !serial_port_->IsOpen()) return;
+
+    std::vector<uint8_t> payload;
+    payload.push_back(4); // COMM_GET_VALUES
+    send_vesc_packet(payload);
+}
+
+std::vector<uint8_t> VESC::read_bytes() {
+    std::vector<uint8_t> buffer;
+
+    while (serial_port_->IsDataAvailable()) {
+        char byte;
+        serial_port_->ReadByte(byte, timeout);
+        buffer.push_back(static_cast<uint8_t>(byte));
+    }
+
+    return buffer;
+}   
+
+bool VESC::get_telemetry(VESCData& out) {
+    request_values();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+    auto raw = read_bytes();
+    auto payload = find_packet(raw);
+
+    if (payload.empty()) return false;
+
+    if (payload[0] != 4) return false; // not GET_VALUES
+
+    // Offsets from official VESC firmware
+    auto get_i16 = [&](int i) {
+        return (payload[i] << 8) | payload[i+1];
+    };
+
+    auto get_i32 = [&](int i) {
+        return (payload[i] << 24) |
+               (payload[i+1] << 16) |
+               (payload[i+2] << 8) |
+                payload[i+3];
+    };
+
+    out.temp_fet      = get_i16(1) / 10.0f;
+    out.current_motor = get_i32(5) / 100.0f;
+    out.rpm           = get_i32(21) / 1000.0f;
+    out.input_voltage = get_i16(29) / 10.0f;
+
+    return true;
+}
+
+
+
+
 float VESC::current_motor(const std::vector<uint8_t>& data){
     if (data.size() < 9) return 0.0f;
     

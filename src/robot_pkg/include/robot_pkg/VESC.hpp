@@ -56,6 +56,9 @@ class VESC{
         // Write data to the VESC
         void send_vesc_packet(const std::vector<uint8_t> &payload);
         void set_rpm(int32_t rpm);
+        void request_values();
+        std::vector<uint8_t> read_bytes();
+        bool get_telemetry(VESCData &out);
 
 };
 #endif // VESC_HPP

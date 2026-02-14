@@ -1,13 +1,14 @@
 #include "geometry_msgs/msg/twist.hpp"
 #include "sensor_msgs/msg/joy.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/bool.hpp" //To publish boolean values
+#include "std_msgs/msg/float32.hpp" //To publush integer or double values
+#include "std_msgs/msg/bool.hpp" //To publush integer or double values
 
 #include <functional>
 
 class Joystick_Listener : public rclcpp::Node{
     public:
-    Joystick_Listener() : Node("joy_listener"){
+    Joystick_Listener() : Node("joystick_node"){
         subscriber__ =  this->create_subscription<sensor_msgs::msg::Joy>(
             "/joy",10,
             std::bind(&Joystick_Listener::callback, this, std::placeholders::_1));
