@@ -39,10 +39,8 @@ class VESC{
         std::unique_ptr<LibSerial::SerialPort> serial_port_;
         bool running = false;
         rclcpp::Logger logger;
-        
-        // Métodos estáticos privados
+        // Métodos estáticos
         static uint16_t crc16(const std::vector<uint8_t>& data, uint16_t poly = 0x1021, uint16_t init_val = 0);
-        static std::vector<uint8_t> build_packet(const std::vector<uint8_t>& payload);
         static std::vector<uint8_t> find_packet(const std::vector<uint8_t>& response);
         static float current_motor(const std::vector<uint8_t>& data);
         static float temp_mos1(const std::vector<uint8_t>& data);
@@ -58,11 +56,6 @@ class VESC{
         // Write data to the VESC
         void send_vesc_packet(const std::vector<uint8_t> &payload);
         void set_rpm(int32_t rpm);
-        // Métodos estáticos
-        static uint16_t crc16(const std::vector<uint8_t>& data, uint16_t poly = 0x1021, uint16_t init_val = 0);
-        static std::vector<uint8_t> find_packet(const std::vector<uint8_t>& response);
-        static float current_motor(const std::vector<uint8_t>& data);
-        static float temp_mos1(const std::vector<uint8_t>& data);
-        static float temp_motor(const std::vector<uint8_t>& data);
+
 };
 #endif // VESC_HPP

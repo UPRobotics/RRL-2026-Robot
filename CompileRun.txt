@@ -1,4 +1,4 @@
-cd ~/Desktop/Programming_stuff/Cplusplus/Atzin/RRL-2026
+cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
 rm -rf build/robot_pkg install/robot_pkg
 colcon build --packages-select robot_pkg
 
