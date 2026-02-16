@@ -3,7 +3,7 @@
 
 #include <string>
 #include <memory>
-#include <serial/serial.h>
+#include <libserial/SerialPort.h>
 #include <rclcpp/rclcpp.hpp>
 #include <vector>
 #include <cstdint>
@@ -15,7 +15,7 @@ struct VESCData {
     float temp_motor = 0.0f;
     float current_motor = 0.0f;
     float current_in = 0.0f;
-    float current_id = 0.0f;
+    float motor_id = 0.0f;
     float current_iq = 0.0f;
     float duty_cycle = 0.0f;
     int32_t rpm = 0;
@@ -32,17 +32,15 @@ struct VESCData {
 
 class VESC{
     private:
-        std::string serial_port;
+        std::string port_name;
         uint8_t motor_id;
         int baudrate;
         int timeout;
-        std::unique_ptr<serial::Serial> serial_connection;
+        std::unique_ptr<LibSerial::SerialPort> serial_port_;
         bool running = false;
         rclcpp::Logger logger;
-        
-        // Métodos estáticos privados
+        // Métodos estáticos
         static uint16_t crc16(const std::vector<uint8_t>& data, uint16_t poly = 0x1021, uint16_t init_val = 0);
-        static std::vector<uint8_t> build_packet(const std::vector<uint8_t>& payload);
         static std::vector<uint8_t> find_packet(const std::vector<uint8_t>& response);
         static float current_motor(const std::vector<uint8_t>& data);
         static float temp_mos1(const std::vector<uint8_t>& data);
@@ -55,13 +53,12 @@ class VESC{
         bool connect();
         void disconnect();
         
-        /*
-        Los metodos de control son los únicos que se usarán externamente.        
-        */
-        
-        // Métodos de control
-        void send_rpm(int32_t rpm);
-        void send_duty_cycle(float duty_cycle);
-        VESCData get_values(std::mutex& data_lock, std::map<uint8_t, VESCData>& vesc_data_map);
+        // Write data to the VESC
+        void send_vesc_packet(const std::vector<uint8_t> &payload);
+        void set_rpm(int32_t rpm);
+        void request_values();
+        std::vector<uint8_t> read_bytes();
+        bool get_telemetry(VESCData &out);
+
 };
 #endif // VESC_HPP

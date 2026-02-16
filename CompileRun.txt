@@ -1,0 +1,23 @@
+cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
+rm -rf build/robot_pkg install/robot_pkg
+colcon build --packages-select robot_pkg
+
+
+
+RUn this one per terminal
+
+cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
+source install/setup.bash
+
+
+And the node to run
+ros2 run robot_pkg arm_node
+
+
+For ACM permissions
+sudo usermod -a -G dialout $USER
+
+This one for the joystick inputs
+
+source /opt/ros/humble/setup.bash
+ros2 run joy joy_node
