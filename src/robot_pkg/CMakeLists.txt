@@ -45,10 +45,12 @@ install(TARGETS arm_node
 # ---------- BODY NODE ----------
 add_executable(body_node
   src/body.cpp
+  src/VESC.cpp
 )
 
 target_include_directories(body_node PUBLIC ${COMMON_INCLUDES})
 ament_target_dependencies(body_node ${COMMON_DEPS})
+target_link_libraries(body_node serial)
 
 install(TARGETS body_node
   DESTINATION lib/${PROJECT_NAME}

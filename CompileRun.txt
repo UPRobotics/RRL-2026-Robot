@@ -7,13 +7,17 @@ colcon build --packages-select robot_pkg
 RUn this one per terminal
 
 cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
+
+or
+
+cd ~/Desktop/Codigos/RRL-2026-Robot
 source install/setup.bash
 
 
 And the node to run
 ros2 run robot_pkg arm_node
 
-
+    
 For ACM permissions
 sudo usermod -a -G dialout $USER
 
