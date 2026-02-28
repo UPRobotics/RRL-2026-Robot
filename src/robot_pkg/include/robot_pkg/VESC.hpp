@@ -15,7 +15,7 @@ struct VESCData {
     float temp_motor = 0.0f;
     float current_motor = 0.0f;
     float current_in = 0.0f;
-    float motor_id = 0.0f;
+    float motor_controller_id = 0.0f;
     float current_iq = 0.0f;
     float duty_cycle = 0.0f;
     int32_t rpm = 0;
@@ -47,11 +47,14 @@ class VESC{
         static float temp_motor(const std::vector<uint8_t>& data);
         
     public:
-        VESC(std::string port, uint8_t id, int baud = 115200, int to = 1000);
+        VESC(uint8_t id, int baud = 115200, int to = 1000);
         ~VESC();
 
         bool connect();
         void disconnect();
+        void closePort();
+        bool autoConnect();
+        bool isConnected();
         
         // Write data to the VESC
         void send_vesc_packet(const std::vector<uint8_t> &payload);

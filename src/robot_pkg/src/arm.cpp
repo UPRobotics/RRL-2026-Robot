@@ -8,6 +8,7 @@
 #include "std_msgs/msg/bool.hpp"
 #include "robot_pkg/VESC.hpp"
 #include "std_msgs/msg/float32.hpp" 
+#include <iostream>
 
 
 using namespace std::chrono_literals;
@@ -17,18 +18,16 @@ class ArmNode : public rclcpp::Node
 {
 public:
      ArmNode() : Node("arm_node"),
-       vesc_(
-      declare_parameter<std::string>("port", "/dev/ttyACM0"),
-      declare_parameter<uint8_t>("id", 0),
+       armMotor(
+      declare_parameter<uint8_t>("id", 4),
       declare_parameter<int>("baudrate", 115200),
       declare_parameter<int>("timeout", 1000)){
 
-        if (vesc_.connect()) {
+        if (armMotor.autoConnect()) {
             RCLCPP_INFO(this->get_logger(), "VESC connected.");
         } else {
             RCLCPP_ERROR(this->get_logger(), "Failed to connect to VESC!");
         }
-
 
         // Create a timer to send commands at 20Hz (every 50ms)
         timer_ = this->create_wall_timer(
@@ -43,38 +42,46 @@ public:
 );
     }
     ~ArmNode() {
-            vesc_.set_rpm(0); 
-            vesc_.disconnect();
-        
+            armMotor.set_rpm(0); 
+            armMotor.disconnect();
     }
 
 private:
     void timer_callback() {
+        if(armMotor.isConnected()){
 
         telemetry();
+        armMotor.set_rpm(desired_rpms * 1500);
+        }else{
+                        RCLCPP_INFO(get_logger(),"not connected 1");
+
+            //armMotor.closePort();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+            armMotor.autoConnect();
+            return;
+        }
 //        int32_t target_rpm = 1500; 
       //  if(test){
-        vesc_.set_rpm(desired_rpms * 1500);
       //  }else{
-//vesc_.set_rpm(0);
+//armMotor.set_rpm(0);
 //        }     
     }
 
     void telemetry(){
             VESCData m_telemetry;
 
-            if(vesc_.get_telemetry(m_telemetry)){
+            if(armMotor.get_telemetry(m_telemetry)){
             RCLCPP_INFO(get_logger(),
             "RPM: %d | Subscription: %.2f | Motor id: %f",
             m_telemetry.rpm,
             desired_rpms,
-            m_telemetry.motor_id);
+            m_telemetry.motor_controller_id);
             //RCLCPP_DEBUG(this->get_logger(), "Sending RPM: %d", 15000);
             }
         }    
 
-
-    VESC vesc_;
+    VESC armMotor;
 
     /* Publishers and subscribers */
     rclcpp::TimerBase::SharedPtr timer_;
@@ -87,7 +94,6 @@ private:
     float desired_rpms = 0.0f;
 
     // ---- Parameters ----
-    std::string port_;
     int baudrate_;
     int run_rpm_;
 };

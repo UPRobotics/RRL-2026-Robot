@@ -1,16 +1,16 @@
 #include "robot_pkg/VESC.hpp"
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 
 #define rosInfo(fmt, ...)  RCLCPP_INFO(logger, fmt, ##__VA_ARGS__)
 #define rosError(fmt, ...) RCLCPP_ERROR(logger, fmt, ##__VA_ARGS__)
 #define rosDebug(fmt, ...) RCLCPP_DEBUG(rclcpp::get_logger("VESC"), fmt, ##__VA_ARGS__)
 
 using namespace LibSerial;
+using namespace std;
 
-VESC::VESC(std::string port, uint8_t id, int baud, int to)
-    : port_name(port), motor_id(id), baudrate(baud), timeout(to),
-      logger(rclcpp::get_logger("VESC")) {
+VESC::VESC(uint8_t id, int baud, int to) : motor_id(id), baudrate(baud), timeout(to),logger(rclcpp::get_logger("VESC")) {
         serial_port_ = std::make_unique<SerialPort>();
       }
 
@@ -59,9 +59,122 @@ void VESC::disconnect() {
     running = false;
 }
 
+bool VESC::isConnected()
+{
+    if (!running)
+        return false;
+
+    try{
+        if(!serial_port_->IsOpen()){
+            return false;
+        }
+    }catch(...){
+            return false;
+        }
+    
+    
+    return running;
+}
+
+vector<string> scanPorts(){
+    vector<string> ports;
+
+    for(auto const& entry : filesystem::directory_iterator("/dev")){
+        string name = entry.path().string();
+
+        if(name.find("ttyACM") != string::npos){
+            ports.push_back(name);
+        }
+    }
+    return ports;
+}
+
+bool VESC::autoConnect(){
+    auto ports = scanPorts();
+
+    for(const auto& port: ports){
+            RCLCPP_INFO(logger,"detected the port %s", port.c_str());
+
+        try{
+            if(serial_port_->IsOpen()){
+                try{serial_port_->Close();} catch(...){}
+                
+            }
+
+            if(!serial_port_->IsOpen()){
+            serial_port_->Open(port);
+
+            if (baudrate == 115200) {
+                serial_port_->SetBaudRate(BaudRate::BAUD_115200);
+            } else {
+                serial_port_->SetBaudRate(BaudRate::BAUD_9600); // Default fallback
+            }
+
+            // 3. Configure 8N1 (Standard for VESC)
+            serial_port_->SetCharacterSize(CharacterSize::CHAR_SIZE_8);
+            serial_port_->SetFlowControl(FlowControl::FLOW_CONTROL_NONE);
+            serial_port_->SetParity(Parity::PARITY_NONE);
+            serial_port_->SetStopBits(StopBits::STOP_BITS_1);
+
+            // ... (your 8N1 configuration code) ...
+            serial_port_->SetStopBits(StopBits::STOP_BITS_1);
+            
+            // --- ADD THIS STABILIZATION BLOCK ---
+            RCLCPP_INFO(logger, "Settling port %s...", port.c_str());
+            
+            // 1. Give the VESC and the USB driver time to "sync up"
+            std::this_thread::sleep_for(std::chrono::milliseconds(200)); 
+
+            // 2. Clear any "garbage" bytes that were in the buffer before we started
+            if (serial_port_->IsDataAvailable()) {
+                serial_port_->FlushInputBuffer();
+                serial_port_->FlushIOBuffers();
+                serial_port_->FlushOutputBuffer();
+                RCLCPP_INFO(logger, "Buffers flushed.");
+            }
+            }
+            RCLCPP_INFO(logger,"tried");
+
+
+        
+            VESCData data;
+            running = true;
+
+            if(get_telemetry(data)){
+                    RCLCPP_INFO(logger,"tried2");
+
+                    RCLCPP_INFO(logger,
+                    "Attempt connection  to ID %f ",
+                    data.motor_controller_id);
+
+
+                if(data.motor_controller_id == motor_id){
+                    RCLCPP_INFO(logger,
+                    "Auto connected to ID %d on %s",
+                    motor_id,port.c_str());
+                    port_name = port;
+                    return true;
+                }
+            }
+
+            serial_port_->Close();
+
+        }
+        catch(const exception& e){
+            RCLCPP_INFO(logger,"POrt failed brcause: %s",e.what());
+
+            running = false;
+            try{serial_port_->Close();} catch(...){}
+            continue;
+        }
+    }
+        return false;
+}
+
 void VESC::set_rpm(int32_t rpm) {
     if (!running || !serial_port_->IsOpen()) return;
 
+    try{
     std::vector<uint8_t> payload;
     payload.push_back(8); // COMM_SET_RPM
     payload.push_back((rpm >> 24) & 0xFF);
@@ -70,11 +183,16 @@ void VESC::set_rpm(int32_t rpm) {
     payload.push_back(rpm & 0xFF);
 
     send_vesc_packet(payload);
+    }catch(const exception& e){
+        running = false;
+            try { serial_port_->Close(); } catch(...) {}
+
+    }
 }
 
 void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
     if (!running || !serial_port_->IsOpen()) return;
-
+    try{
     std::vector<uint8_t> packet;
     packet.push_back(2); // Start
     packet.push_back(static_cast<uint8_t>(payload.size()));
@@ -86,6 +204,11 @@ void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
     packet.push_back(3); // End
 
     serial_port_->Write(packet);
+    }catch(const exception& e){
+        running = false;
+            try { serial_port_->Close(); } catch(...) {}
+
+    }
 }
 
 uint16_t VESC::crc16(const std::vector<uint8_t>& data, uint16_t poly, uint16_t init_val){
@@ -146,11 +269,17 @@ void VESC::request_values() {
 std::vector<uint8_t> VESC::read_bytes() {
     std::vector<uint8_t> buffer;
 
+    try{
     while (serial_port_->IsDataAvailable()) {
         char byte;
         serial_port_->ReadByte(byte, timeout);
         buffer.push_back(static_cast<uint8_t>(byte));
     }
+}catch(const exception& e){
+    running =false;
+        try { serial_port_->Close(); } catch(...) {}
+
+}
 
     return buffer;
 }   
@@ -178,20 +307,17 @@ bool VESC::get_telemetry(VESCData& out) {
                (payload[i+2] << 8) |
                 payload[i+3];
     };
-
+RCLCPP_INFO(logger,"triedTElemtry");
     out.temp_fet      = get_i16(1) / 10.0f;
     out.current_motor = get_i32(5) / 100.0f;
     out.rpm           = get_i32(23);
     out.input_voltage = get_i16(29) / 10.0f;
 
     if(payload.size() > 58){
-        out.motor_id = payload[58];
+        out.motor_controller_id = payload[58];
     }
     return true;
 }
-
-
-
 
 float VESC::current_motor(const std::vector<uint8_t>& data){
     if (data.size() < 9) return 0.0f;

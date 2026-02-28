@@ -21,23 +21,19 @@ class BodyNode : public rclcpp::Node{
 
         BodyNode() : Node("body_node"),
             leftMotor(
-                declare_parameter<string>("left_port", leftPortName),
                 declare_parameter<uint8_t>("left_id", leftMotorId),
                 declare_parameter<int>("left_baudrate", 115200),
                 declare_parameter<int>("left_timeout", 1000)),
                 
             rightMotor(
-                declare_parameter<string>("right_port", rightPortName),
                 declare_parameter<uint8_t>("right_id", rightMotorId),
                 declare_parameter<int>("right_baudrate", 115200),
                 declare_parameter<int>("right_timeout", 1000)),
             leftFlipperMotor(
-                declare_parameter<string>("left_flipper_port", leftFlipperPortName),
                 declare_parameter<uint8_t>("left_flipper_id", leftFlipperId),
                 declare_parameter<int>("left_flipper_baudrate", 115200),
                 declare_parameter<int>("left_flipper_timeout", 1000)),
             rightFlipperMotor(
-                declare_parameter<string>("right_flipper_port", rightFlipperPortName),
                 declare_parameter<uint8_t>("right_flipper_id", rightFlipperId),
                 declare_parameter<int>("right_flipper_baudrate", 115200),
                 declare_parameter<int>("right_flipper_timeout", 1000))
