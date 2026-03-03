@@ -62,38 +62,57 @@ bool VESC::connect() {
 }
 
 void VESC::disconnect() {
-    if (serial_port_ && serial_port_->IsOpen()) {
-        try{
-            serial_port_->DrainWriteBuffer();
-            serial_port_->FlushIOBuffers();
-        }catch(...){}
-        
-        serial_port_->Close();
-        RCLCPP_INFO(logger, "Disconnected.");
+    running = false;
+    
+    if (!serial_port_) return;
+    
+    try {
+        if (serial_port_->IsOpen()) {
+            try{
+                serial_port_->DrainWriteBuffer();
+                serial_port_->FlushIOBuffers();
+            }catch(const std::exception& e){
+                RCLCPP_WARN(logger, "Error draining buffers during disconnect: %s", e.what());
+            }catch(...){
+                RCLCPP_WARN(logger, "Unknown error draining buffers during disconnect");
+            }
+            
+            try {
+                serial_port_->Close();
+                RCLCPP_INFO(logger, "Disconnected.");
+            } catch(const std::exception& e){
+                RCLCPP_ERROR(logger, "Error closing port: %s", e.what());
+            } catch(...){
+                RCLCPP_ERROR(logger, "Unknown error closing port");
+            }
+        }
+    } catch(const std::exception& e) {
+        RCLCPP_ERROR(logger, "Exception in disconnect: %s", e.what());
+    } catch(...){
+        RCLCPP_ERROR(logger, "Unknown exception in disconnect");
     }
-
+    
+    // Verificar si realmente cerró
     try{
         if(serial_port_ && serial_port_->IsOpen()){
             RCLCPP_WARN(logger, "Port didnt close correctly");
         }
     }catch(...){}
-    running = false;
 }
 
 bool VESC::isConnected()
 {
-    if (!running)
+    if (!running || !serial_port_)
         return false;
 
     try{
-        if(!serial_port_ || !serial_port_->IsOpen()){
-            return false;
-        }
+        return serial_port_->IsOpen();
+    }catch(const std::exception& e){
+        RCLCPP_DEBUG(logger, "IsOpen() threw exception: %s", e.what());
+        return false;
     }catch(...){
         return false;
     }
-    
-    return running;
 }
 
 vector<string> scanPorts(){
@@ -261,7 +280,22 @@ bool VESC::autoConnect(){
 // ...existing code...
 
 void VESC::set_rpm(int32_t rpm) {
-    if (!running || !serial_port_ || !serial_port_->IsOpen()) return;
+    if (!running || !serial_port_) return;
+    
+    // IsOpen() puede lanzar excepción
+    bool is_open = false;
+    try {
+        is_open = serial_port_->IsOpen();
+    } catch(const std::exception& e) {
+        RCLCPP_ERROR(logger, "set_rpm: IsOpen() threw: %s", e.what());
+        running = false;
+        return;
+    } catch(...) {
+        running = false;
+        return;
+    }
+    
+    if (!is_open) return;
 
     try{
         std::vector<uint8_t> payload;
@@ -272,14 +306,35 @@ void VESC::set_rpm(int32_t rpm) {
         payload.push_back(rpm & 0xFF);
 
         send_vesc_packet(payload);
-    }catch(const exception& e){
+    }catch(const std::exception& e){
+        RCLCPP_ERROR(logger, "set_rpm error: %s", e.what());
+        running = false;
+        try { if(serial_port_) serial_port_->Close(); } catch(...) {}
+    }catch(...){
+        RCLCPP_ERROR(logger, "set_rpm unknown error");
         running = false;
         try { if(serial_port_) serial_port_->Close(); } catch(...) {}
     }
 }
 
 void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
-    if (!running || !serial_port_ || !serial_port_->IsOpen()) return;
+    if (!running || !serial_port_) return;
+    
+    // IsOpen() puede lanzar excepción
+    bool is_open = false;
+    try {
+        is_open = serial_port_->IsOpen();
+    } catch(const std::exception& e) {
+        RCLCPP_ERROR(logger, "send_packet: IsOpen() threw: %s", e.what());
+        running = false;
+        return;
+    } catch(...) {
+        running = false;
+        return;
+    }
+    
+    if (!is_open) return;
+    
     try{
         std::vector<uint8_t> packet;
         packet.push_back(2); // Start
@@ -292,7 +347,12 @@ void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
         packet.push_back(3); // End
 
         serial_port_->Write(packet);
-    }catch(const exception& e){
+    }catch(const std::exception& e){
+        RCLCPP_ERROR(logger, "send_packet Write error: %s", e.what());
+        running = false;
+        try { if(serial_port_) serial_port_->Close(); } catch(...) {}
+    }catch(...){
+        RCLCPP_ERROR(logger, "send_packet unknown Write error");
         running = false;
         try { if(serial_port_) serial_port_->Close(); } catch(...) {}
     }
@@ -346,8 +406,27 @@ std::vector<uint8_t> VESC::find_packet(const std::vector<uint8_t>& response){
 }
 
 void VESC::request_values() {
-    if (!running || !serial_port_ || !serial_port_->IsOpen()) {
-        RCLCPP_ERROR(logger, "Serial not open: running=%d, serial_port_=%p", running, (void*)serial_port_.get());
+    if (!running || !serial_port_) {
+        RCLCPP_ERROR(logger, "Cannot request: running=%d, serial_port_=%p", running, (void*)serial_port_.get());
+        return;
+    }
+    
+    // Verificar que el puerto esté abierto (puede lanzar excepción)
+    bool is_open = false;
+    try {
+        is_open = serial_port_->IsOpen();
+    } catch(const std::exception& e) {
+        RCLCPP_ERROR(logger, "IsOpen() threw: %s", e.what());
+        running = false;
+        return;
+    } catch(...) {
+        RCLCPP_ERROR(logger, "IsOpen() threw unknown exception");
+        running = false;
+        return;
+    }
+    
+    if (!is_open) {
+        RCLCPP_ERROR(logger, "Serial port not open");
         return;
     }
 
@@ -355,8 +434,10 @@ void VESC::request_values() {
         serial_port_->FlushInputBuffer();
         serial_port_->FlushIOBuffers();
         RCLCPP_DEBUG(logger, "Buffers flushed");
-    }catch(const exception& e){
-        RCLCPP_WARN(logger, "Flush error: %s", e.what());
+    }catch(const std::exception& e){
+        RCLCPP_WARN(logger, "Flush error: %s - continuing anyway", e.what());
+    }catch(...){
+        RCLCPP_WARN(logger, "Unknown flush error - continuing anyway");
     }
     
     std::vector<uint8_t> payload;
