@@ -47,6 +47,17 @@ bool VESC::connect() {
         serial_port_->SetParity(Parity::PARITY_NONE);
         serial_port_->SetStopBits(StopBits::STOP_BITS_1);
 
+        // Flush buffers — if this fails, port is not usable
+        try {
+            serial_port_->FlushInputBuffer();
+            serial_port_->FlushIOBuffers();
+        } catch(const std::exception& e) {
+            RCLCPP_ERROR(logger, "Flush error: %s - port disconnected", e.what());
+            running = false;
+            try { serial_port_->Close(); } catch(...) {}
+            return false;
+        }
+
         running = true;
         RCLCPP_INFO(logger, "Connected to %s", port_name.c_str());
         return true;
@@ -58,16 +69,6 @@ bool VESC::connect() {
     catch (const std::exception& e) {
         RCLCPP_ERROR(logger, "Serial Exception: %s", e.what());
         return false;
-    }
-
-    try{
-        serial_port_->FlushInputBuffer();
-        serial_port_->FlushIOBuffers();
-        RCLCPP_DEBUG(logger, "Buffers flushed");
-    }catch(const std::exception& e){
-        RCLCPP_WARN(logger, "Flush error: %s - continuing anyway", e.what());
-    }catch(...){
-        RCLCPP_WARN(logger, "Unknown flush error - continuing anyway");
     }
 }
 
