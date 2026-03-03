@@ -19,6 +19,16 @@ VESC::~VESC() {
 }
 
 bool VESC::connect() {
+    if (!serial_port_) {
+        RCLCPP_ERROR(logger, "serial_port_ is null, recreating...");
+        try {
+            serial_port_ = std::make_unique<SerialPort>();
+        } catch(...) {
+            RCLCPP_ERROR(logger, "Failed to create SerialPort object");
+            return false;
+        }
+    }
+    
     try {
         // 1. Open the port
         serial_port_->Open(port_name);
@@ -52,22 +62,19 @@ bool VESC::connect() {
 }
 
 void VESC::disconnect() {
-    if (serial_port_->IsOpen()) {
-
+    if (serial_port_ && serial_port_->IsOpen()) {
         try{
             serial_port_->DrainWriteBuffer();
             serial_port_->FlushIOBuffers();
-        }catch(...){
-            
-        }
-        serial_port_->Close();
+        }catch(...){}
         
+        serial_port_->Close();
         RCLCPP_INFO(logger, "Disconnected.");
     }
 
     try{
-        if(serial_port_->IsOpen()){
-            cout << "Port didnt close correctly" << endl;
+        if(serial_port_ && serial_port_->IsOpen()){
+            RCLCPP_WARN(logger, "Port didnt close correctly");
         }
     }catch(...){}
     running = false;
@@ -79,13 +86,12 @@ bool VESC::isConnected()
         return false;
 
     try{
-        if(!serial_port_->IsOpen()){
+        if(!serial_port_ || !serial_port_->IsOpen()){
             return false;
         }
     }catch(...){
-            return false;
-        }
-    
+        return false;
+    }
     
     return running;
 }
@@ -103,9 +109,6 @@ vector<string> scanPorts(){
     return ports;
 }
 
-// ...existing code...
-// ...existing code...
-// ...existing code...
 bool VESC::autoConnect(){
     auto ports = scanPorts();
 
@@ -115,13 +118,13 @@ bool VESC::autoConnect(){
         try{
             // Recreate serial_port_ to avoid stale "already open" internal state
             try {
-                serial_port_.reset(new SerialPort());
+                serial_port_ = std::make_unique<SerialPort>();
             } catch (const std::exception &e) {
-                RCLCPP_INFO(logger, "Failed creating SerialPort object: %s", e.what());
+                RCLCPP_ERROR(logger, "Failed creating SerialPort object: %s", e.what());
                 serial_port_.reset();
                 continue;
             } catch(...) {
-                RCLCPP_INFO(logger, "Failed creating SerialPort object: unknown error");
+                RCLCPP_ERROR(logger, "Failed creating SerialPort object: unknown error");
                 serial_port_.reset();
                 continue;
             }
@@ -242,48 +245,56 @@ bool VESC::autoConnect(){
             continue;
         }
     }
+    
+    // Si llegamos aquí, no se conectó a ningún puerto. Asegurar que serial_port_ sea válido
+    if (!serial_port_) {
+        try {
+            serial_port_ = std::make_unique<SerialPort>();
+        } catch(...) {
+            RCLCPP_ERROR(logger, "Failed to recreate SerialPort after failed autoConnect");
+        }
+    }
+    
     return false;
 }
 // ...existing code...
 // ...existing code...
 
 void VESC::set_rpm(int32_t rpm) {
-    if (!running || !serial_port_->IsOpen()) return;
+    if (!running || !serial_port_ || !serial_port_->IsOpen()) return;
 
     try{
-    std::vector<uint8_t> payload;
-    payload.push_back(8); // COMM_SET_RPM
-    payload.push_back((rpm >> 24) & 0xFF);
-    payload.push_back((rpm >> 16) & 0xFF);
-    payload.push_back((rpm >> 8) & 0xFF);
-    payload.push_back(rpm & 0xFF);
+        std::vector<uint8_t> payload;
+        payload.push_back(8); // COMM_SET_RPM
+        payload.push_back((rpm >> 24) & 0xFF);
+        payload.push_back((rpm >> 16) & 0xFF);
+        payload.push_back((rpm >> 8) & 0xFF);
+        payload.push_back(rpm & 0xFF);
 
-    send_vesc_packet(payload);
+        send_vesc_packet(payload);
     }catch(const exception& e){
         running = false;
-            try { serial_port_->Close(); } catch(...) {}
-
+        try { if(serial_port_) serial_port_->Close(); } catch(...) {}
     }
 }
 
 void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
-    if (!running || !serial_port_->IsOpen()) return;
+    if (!running || !serial_port_ || !serial_port_->IsOpen()) return;
     try{
-    std::vector<uint8_t> packet;
-    packet.push_back(2); // Start
-    packet.push_back(static_cast<uint8_t>(payload.size()));
-    packet.insert(packet.end(), payload.begin(), payload.end());
+        std::vector<uint8_t> packet;
+        packet.push_back(2); // Start
+        packet.push_back(static_cast<uint8_t>(payload.size()));
+        packet.insert(packet.end(), payload.begin(), payload.end());
 
-    uint16_t crc = crc16(payload);
-    packet.push_back((crc >> 8) & 0xFF);
-    packet.push_back(crc & 0xFF);
-    packet.push_back(3); // End
+        uint16_t crc = crc16(payload);
+        packet.push_back((crc >> 8) & 0xFF);
+        packet.push_back(crc & 0xFF);
+        packet.push_back(3); // End
 
-    serial_port_->Write(packet);
+        serial_port_->Write(packet);
     }catch(const exception& e){
         running = false;
-            try { serial_port_->Close(); } catch(...) {}
-
+        try { if(serial_port_) serial_port_->Close(); } catch(...) {}
     }
 }
 
@@ -335,16 +346,19 @@ std::vector<uint8_t> VESC::find_packet(const std::vector<uint8_t>& response){
 }
 
 void VESC::request_values() {
-    if (!running || !serial_port_->IsOpen()) {cout << "Serial not open" << endl; return;}
+    if (!running || !serial_port_ || !serial_port_->IsOpen()) {
+        RCLCPP_ERROR(logger, "Serial not open: running=%d, serial_port_=%p", running, (void*)serial_port_.get());
+        return;
+    }
 
     try{
-            serial_port_->FlushInputBuffer();
-            serial_port_->FlushIOBuffers();
-            cout << "Buffers flushed" << endl;
-        
+        serial_port_->FlushInputBuffer();
+        serial_port_->FlushIOBuffers();
+        RCLCPP_DEBUG(logger, "Buffers flushed");
     }catch(const exception& e){
-        cout << e.what() << endl;
+        RCLCPP_WARN(logger, "Flush error: %s", e.what());
     }
+    
     std::vector<uint8_t> payload;
     payload.push_back(4); // COMM_GET_VALUES
     send_vesc_packet(payload);
