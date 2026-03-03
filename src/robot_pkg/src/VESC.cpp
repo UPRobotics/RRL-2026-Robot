@@ -52,7 +52,7 @@ bool VESC::connect() {
             serial_port_->FlushInputBuffer();
             serial_port_->FlushIOBuffers();
         } catch(const std::exception& e) {
-            RCLCPP_ERROR(logger, "Flush error: %s - port disconnected", e.what());
+            RCLCPP_WARN(logger, "Flush error: %s - port disconnected", e.what());
             running = false;
             try { serial_port_->Close(); } catch(...) {}
             return false;
@@ -255,11 +255,11 @@ void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
 
         serial_port_->Write(packet);
     }catch(const std::exception& e){
-        RCLCPP_ERROR(logger, "send_packet Write error: %s", e.what());
+        RCLCPP_WARN(logger, "Write failed (USB disconnected?): %s", e.what());
         running = false;
         try { if(serial_port_) serial_port_->Close(); } catch(...) {}
     }catch(...){
-        RCLCPP_ERROR(logger, "send_packet unknown Write error");
+        RCLCPP_WARN(logger, "Write failed (unknown error)");
         running = false;
         try { if(serial_port_) serial_port_->Close(); } catch(...) {}
     }
@@ -314,16 +314,6 @@ std::vector<uint8_t> VESC::find_packet(const std::vector<uint8_t>& response){
 
 void VESC::request_values() {
     if (!isConnected()) return;
-
-    try {
-        serial_port_->FlushInputBuffer();
-        serial_port_->FlushIOBuffers();
-    } catch(const std::exception& e) {
-        // Flush fails with EIO when USB is physically disconnected
-        RCLCPP_ERROR(logger, "Flush error: %s - port disconnected", e.what());
-        running = false;
-        return;
-    }
 
     std::vector<uint8_t> payload;
     payload.push_back(4); // COMM_GET_VALUES
@@ -384,6 +374,9 @@ std::vector<uint8_t> VESC::read_bytes() {
 
 bool VESC::get_telemetry(VESCData& out) {
     request_values();
+
+    // If request_values detected a disconnect, don't bother reading
+    if (!running) return false;
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 

@@ -73,7 +73,7 @@ private:
 
             if(armMotor.get_telemetry(m_telemetry)){
             RCLCPP_INFO(get_logger(),
-            "RPM: %d | Subscription: %.2f | Motor id: %f",
+            "RPM: %d | Subscription: %.2f | Motor id: %u",
             m_telemetry.rpm,
             desired_rpms,
             m_telemetry.motor_controller_id);

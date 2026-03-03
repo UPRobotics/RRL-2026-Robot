@@ -39,22 +39,22 @@ class BodyNode : public rclcpp::Node{
                 declare_parameter<int>("right_flipper_timeout", 1000))
                 {
 
-                if(leftMotor.connect()){
+                if(leftMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Left motor body connected.");
                 } else{
                     RCLCPP_INFO(this->get_logger(), "Failed to connect to left motor");
                 }
-                if(rightMotor.connect()){
+                if(rightMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Right motor body connected.");
                 } else{
                     RCLCPP_INFO(this->get_logger(), "Failed to connect to right motor");
                 }
-                if(leftFlipperMotor.connect()){
+                if(leftFlipperMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Left flipper motor connected.");
                 } else{
                     RCLCPP_INFO(this->get_logger(), "Failed to connect to left flipper motor");
                 }
-                if(rightFlipperMotor.connect()){
+                if(rightFlipperMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Right flipper motor connected.");
                 } else{
                     RCLCPP_INFO(this->get_logger(), "Failed to connect to right flipper motor");
@@ -100,24 +100,39 @@ class BodyNode : public rclcpp::Node{
     private:
 
     void driveLeft(){
+        if (!leftMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Left motor disconnected, reconnecting...");
+            leftMotor.autoConnect();
+            return;
+        }
         leftMotor.set_rpm(joystick_left_y * leftMaxRPM);
-        RCLCPP_INFO(get_logger(),"left");
-
     }
 
     void driveRight(){
+        if (!rightMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Right motor disconnected, reconnecting...");
+            rightMotor.autoConnect();
+            return;
+        }
         rightMotor.set_rpm(joystick_left_y * -rightMaxRPM);
-        RCLCPP_INFO(get_logger(),"right");
     }
 
     void driveLeftFlipper(){
+        if (!leftFlipperMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Left flipper disconnected, reconnecting...");
+            leftFlipperMotor.autoConnect();
+            return;
+        }
         leftFlipperMotor.set_rpm(joystick_flipper * leftFlipperMaxRPM);
-        RCLCPP_INFO(get_logger(),"left flipper");
     }
 
     void driveRightFlipper(){
+        if (!rightFlipperMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Right flipper disconnected, reconnecting...");
+            rightFlipperMotor.autoConnect();
+            return;
+        }
         rightFlipperMotor.set_rpm(joystick_flipper * -rightFlipperMaxRPM);
-        RCLCPP_INFO(get_logger(),"right flipper");
     }
 
     VESC leftMotor;
