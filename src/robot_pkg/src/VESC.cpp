@@ -33,11 +33,12 @@ bool VESC::connect() {
         // 1. Open the port
         serial_port_->Open(port_name);
 
-        // 2. Configure Baud Rate
+        // 2. Configure Baud Rate (LibSerial requires specific enums)
+        // You might need a switch case if you want to support multiple rates dynamically
         if (baudrate == 115200) {
             serial_port_->SetBaudRate(BaudRate::BAUD_115200);
         } else {
-            serial_port_->SetBaudRate(BaudRate::BAUD_9600);
+            serial_port_->SetBaudRate(BaudRate::BAUD_9600); // Default fallback
         }
 
         // 3. Configure 8N1 (Standard for VESC)
@@ -46,51 +47,16 @@ bool VESC::connect() {
         serial_port_->SetParity(Parity::PARITY_NONE);
         serial_port_->SetStopBits(StopBits::STOP_BITS_1);
 
-        // 4. Esperar a que el puerto se estabilice
-        RCLCPP_INFO(logger, "Waiting for port to stabilize...");
-        std::this_thread::sleep_for(std::chrono::milliseconds(800));
-        
-        // 5. Flush buffers con reintento
-        bool flush_ok = false;
-        try {
-            serial_port_->FlushInputBuffer();
-            serial_port_->FlushIOBuffers();
-            serial_port_->FlushOutputBuffer();
-            flush_ok = true;
-            RCLCPP_INFO(logger, "Buffers flushed");
-        } catch(const std::exception& e) {
-            RCLCPP_WARN(logger, "First flush failed: %s, retrying...", e.what());
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            try {
-                serial_port_->FlushInputBuffer();
-                serial_port_->FlushIOBuffers();
-                flush_ok = true;
-            } catch(...) {
-                RCLCPP_ERROR(logger, "Port unstable, cannot flush");
-            }
-        } catch(...) {
-            RCLCPP_ERROR(logger, "Flush failed");
-        }
-        
-        if (!flush_ok) {
-            RCLCPP_ERROR(logger, "Failed to stabilize port");
-            try { serial_port_->Close(); } catch(...) {}
-            running = false;
-            return false;
-        }
-
         running = true;
         RCLCPP_INFO(logger, "Connected to %s", port_name.c_str());
         return true;
     } 
     catch (const OpenFailed&) {
         RCLCPP_ERROR(logger, "Failed to open port %s", port_name.c_str());
-        running = false;
         return false;
     }
     catch (const std::exception& e) {
         RCLCPP_ERROR(logger, "Serial Exception: %s", e.what());
-        running = false;
         return false;
     }
 }
@@ -186,6 +152,8 @@ bool VESC::autoConnect(){
             try {
                 RCLCPP_INFO(logger, "Opening %s ...", port.c_str());
                 serial_port_->Open(port);
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(5000));
             } catch (const std::exception &e) {
                 RCLCPP_INFO(logger, "Open failed for %s: %s", port.c_str(), e.what());
                 try { if (serial_port_ && serial_port_->IsOpen()) serial_port_->Close(); } catch(...) {}
@@ -236,47 +204,17 @@ bool VESC::autoConnect(){
             }
 
             // Stabilization: give device/driver time and flush buffers
-            RCLCPP_INFO(logger, "Settling port %s (waiting for stable connection)...", port.c_str());
-            // Delay MÁS LARGO después de reconexión física
-            std::this_thread::sleep_for(std::chrono::milliseconds(800));
-            
-            bool flush_success = false;
+            RCLCPP_INFO(logger, "Settling port %s...", port.c_str());
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
             try {
                 serial_port_->FlushInputBuffer();
                 serial_port_->FlushIOBuffers();
                 serial_port_->FlushOutputBuffer();
-                RCLCPP_INFO(logger, "Buffers flushed successfully.");
-                flush_success = true;
+                RCLCPP_INFO(logger, "Buffers flushed.");
             } catch (const std::exception &e) {
-                RCLCPP_WARN(logger, "Flush failed: %s - port may still be unstable, will retry", e.what());
-                // Dar más tiempo si el flush falló
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                
-                // Intentar flush una vez más
-                try {
-                    serial_port_->FlushInputBuffer();
-                    serial_port_->FlushIOBuffers();
-                    RCLCPP_INFO(logger, "Second flush attempt succeeded");
-                    flush_success = true;
-                } catch(...) {
-                    RCLCPP_ERROR(logger, "Second flush failed - skipping this port");
-                    try { serial_port_->Close(); } catch(...) {}
-                    serial_port_.reset();
-                    continue;
-                }
+                RCLCPP_INFO(logger, "Flush failed: %s", e.what());
             } catch(...) {
-                RCLCPP_ERROR(logger, "Flush failed with unknown error - skipping this port");
-                try { serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
-            }
-            
-            // Si llegamos aquí, el flush funcionó
-            if (!flush_success) {
-                RCLCPP_ERROR(logger, "Port unstable, skipping");
-                try { serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
+                RCLCPP_INFO(logger, "Flush failed: unknown");
             }
 
             VESCData data;
@@ -494,8 +432,15 @@ void VESC::request_values() {
         return;
     }
 
-    // NO hacer flush aquí - ya se hizo en autoConnect/connect
-    // El flush repetido en puerto recién conectado causa problemas
+    try{
+        serial_port_->FlushInputBuffer();
+        serial_port_->FlushIOBuffers();
+        RCLCPP_DEBUG(logger, "Buffers flushed");
+    }catch(const std::exception& e){
+        RCLCPP_WARN(logger, "Flush error: %s - continuing anyway", e.what());
+    }catch(...){
+        RCLCPP_WARN(logger, "Unknown flush error - continuing anyway");
+    }
     
     std::vector<uint8_t> payload;
     payload.push_back(4); // COMM_GET_VALUES
@@ -555,74 +500,42 @@ std::vector<uint8_t> VESC::read_bytes() {
 }
 
 bool VESC::get_telemetry(VESCData& out) {
-    try {
-        // Verificar estado antes de pedir telemetría
-        if (!running || !serial_port_) {
-            RCLCPP_ERROR(logger, "get_telemetry: not ready (running=%d, serial_port_=%p)", 
-                        running, (void*)serial_port_.get());
-            return false;
-        }
-        
-        request_values();
-        
-        // Si request_values falló, running se puso en false
-        if (!running) {
-            RCLCPP_ERROR(logger, "request_values failed, aborting telemetry");
-            return false;
-        }
+    request_values();
 
-        std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Aumentado de 10 a 50
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-        auto raw = read_bytes();
+    auto raw = read_bytes();
 
-        for(auto &i : raw){
-            cout << static_cast<int>(i) << " ";
-        }
-        cout << endl;
-        auto payload = find_packet(raw);
-
-        if (payload.empty()){ 
-            RCLCPP_DEBUG(logger,"Payload is empty - no response from VESC"); 
-            return false;
-        }
-
-        if (payload[0] != 4) {
-            RCLCPP_WARN(logger, "Unexpected packet type: %d (expected 4)", payload[0]);
-            return false;
-        }
-
-        // Offsets from official VESC firmware
-        auto get_i16 = [&](int i) {
-            return (payload[i] << 8) | payload[i+1];
-        };
-
-        auto get_i32 = [&](int i) {
-            return (payload[i] << 24) |
-                   (payload[i+1] << 16) |
-                   (payload[i+2] << 8) |
-                    payload[i+3];
-        };
-        
-        out.temp_fet      = get_i16(1) / 10.0f;
-        out.current_motor = get_i32(5) / 100.0f;
-        out.rpm           = get_i32(23);
-        out.input_voltage = get_i16(29) / 10.0f;
-
-        if(payload.size() > 58){
-            out.motor_controller_id = payload[58];
-        } else {
-            out.motor_controller_id = 0xFF; // Valor inválido
-        }
-        return true;
-    } catch(const std::exception& e) {
-        RCLCPP_ERROR(logger, "get_telemetry exception: %s", e.what());
-        running = false;
-        return false;
-    } catch(...) {
-        RCLCPP_ERROR(logger, "get_telemetry unknown exception");
-        running = false;
-        return false;
+    for(auto &i : raw){
+        cout << static_cast<int>(i) << " ";
     }
+    cout << endl;
+    auto payload = find_packet(raw);
+
+    if (payload.empty()){ RCLCPP_INFO(logger,"PAyload is mepty"); return false;}
+
+    if (payload[0] != 4) return false; // not GET_VALUES
+
+    // Offsets from official VESC firmware
+    auto get_i16 = [&](int i) {
+        return (payload[i] << 8) | payload[i+1];
+    };
+
+    auto get_i32 = [&](int i) {
+        return (payload[i] << 24) |
+               (payload[i+1] << 16) |
+               (payload[i+2] << 8) |
+                payload[i+3];
+    };
+    out.temp_fet      = get_i16(1) / 10.0f;
+    out.current_motor = get_i32(5) / 100.0f;
+    out.rpm           = get_i32(23);
+    out.input_voltage = get_i16(29) / 10.0f;
+
+    if(payload.size() > 58){
+        out.motor_controller_id = payload[58];
+    }
+    return true;
 }
 
 float VESC::current_motor(const std::vector<uint8_t>& data){
