@@ -59,6 +59,16 @@ bool VESC::connect() {
         RCLCPP_ERROR(logger, "Serial Exception: %s", e.what());
         return false;
     }
+
+    try{
+        serial_port_->FlushInputBuffer();
+        serial_port_->FlushIOBuffers();
+        RCLCPP_DEBUG(logger, "Buffers flushed");
+    }catch(const std::exception& e){
+        RCLCPP_WARN(logger, "Flush error: %s - continuing anyway", e.what());
+    }catch(...){
+        RCLCPP_WARN(logger, "Unknown flush error - continuing anyway");
+    }
 }
 
 void VESC::disconnect() {
