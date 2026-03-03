@@ -135,169 +135,78 @@ bool VESC::autoConnect(){
         RCLCPP_INFO(logger,"detected the port %s", port.c_str());
 
         try{
-            // Recreate serial_port_ to avoid stale "already open" internal state
-            try {
-                serial_port_ = std::make_unique<SerialPort>();
-            } catch (const std::exception &e) {
-                RCLCPP_ERROR(logger, "Failed creating SerialPort object: %s", e.what());
-                serial_port_.reset();
-                continue;
-            } catch(...) {
-                RCLCPP_ERROR(logger, "Failed creating SerialPort object: unknown error");
-                serial_port_.reset();
-                continue;
-            }
+            // Recreate serial_port_ to avoid stale state
+            serial_port_ = std::make_unique<SerialPort>();
 
-            // Try open (will throw on failure)
-            try {
-                RCLCPP_INFO(logger, "Opening %s ...", port.c_str());
-                serial_port_->Open(port);
+            // Open port (throws on failure, caught by outer catch)
+            RCLCPP_INFO(logger, "Opening %s ...", port.c_str());
+            serial_port_->Open(port);
 
-                std::this_thread::sleep_for(std::chrono::milliseconds(5000));
-            } catch (const std::exception &e) {
-                RCLCPP_INFO(logger, "Open failed for %s: %s", port.c_str(), e.what());
-                try { if (serial_port_ && serial_port_->IsOpen()) serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
-            } catch(...) {
-                RCLCPP_INFO(logger, "Open failed for %s: unknown exception", port.c_str());
-                try { if (serial_port_ && serial_port_->IsOpen()) serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
+            // Configure 8N1 (throws on failure, caught by outer catch)
+            if (baudrate == 115200) {
+                serial_port_->SetBaudRate(BaudRate::BAUD_115200);
+            } else {
+                serial_port_->SetBaudRate(BaudRate::BAUD_9600);
             }
+            serial_port_->SetCharacterSize(CharacterSize::CHAR_SIZE_8);
+            serial_port_->SetFlowControl(FlowControl::FLOW_CONTROL_NONE);
+            serial_port_->SetParity(Parity::PARITY_NONE);
+            serial_port_->SetStopBits(StopBits::STOP_BITS_1);
 
-            // Confirm open
-            bool is_open = false;
-            try { is_open = serial_port_->IsOpen(); } catch(const std::exception &e) {
-                RCLCPP_INFO(logger, "IsOpen() threw: %s", e.what());
-            } catch(...) {
-                RCLCPP_INFO(logger, "IsOpen() threw unknown");
-            }
-            if(!is_open){
-                RCLCPP_INFO(logger, "Port %s not open after Open()", port.c_str());
-                try { if (serial_port_ && serial_port_->IsOpen()) serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
-            }
-
-            // Configure after successful open (guard each call)
-            try {
-                if (baudrate == 115200) {
-                    serial_port_->SetBaudRate(BaudRate::BAUD_115200);
-                } else {
-                    serial_port_->SetBaudRate(BaudRate::BAUD_9600);
-                }
-                serial_port_->SetCharacterSize(CharacterSize::CHAR_SIZE_8);
-                serial_port_->SetFlowControl(FlowControl::FLOW_CONTROL_NONE);
-                serial_port_->SetParity(Parity::PARITY_NONE);
-                serial_port_->SetStopBits(StopBits::STOP_BITS_1);
-            } catch(const std::exception &e){
-                RCLCPP_INFO(logger, "Configuration failed for %s: %s", port.c_str(), e.what());
-                try { serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
-            } catch(...) {
-                RCLCPP_INFO(logger, "Configuration failed for %s: unknown", port.c_str());
-                try { serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
-            }
-
-            // Stabilization: give device/driver time and flush buffers
+            // Wait 2s for USB-serial chip to fully initialize after hot-plug
             RCLCPP_INFO(logger, "Settling port %s...", port.c_str());
-            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
             try {
                 serial_port_->FlushInputBuffer();
                 serial_port_->FlushIOBuffers();
-                serial_port_->FlushOutputBuffer();
                 RCLCPP_INFO(logger, "Buffers flushed.");
             } catch (const std::exception &e) {
-                RCLCPP_INFO(logger, "Flush failed: %s", e.what());
-            } catch(...) {
-                RCLCPP_INFO(logger, "Flush failed: unknown");
+                RCLCPP_WARN(logger, "Flush failed for %s: %s - skipping port", port.c_str(), e.what());
+                try { serial_port_->Close(); } catch(...) {}
+                serial_port_.reset();
+                continue;
             }
 
             VESCData data;
             running = true;
 
             // Try a few times to get telemetry since hot-plug can be flaky
-            bool ok = false;
-            for (int attempt = 0; attempt < 3 && !ok; ++attempt) {
+            for (int attempt = 0; attempt < 3; ++attempt) {
                 if (get_telemetry(data)) {
-                    RCLCPP_INFO(logger, "Telemetry received on attempt %d", attempt + 1);
-                    RCLCPP_INFO(logger, "Attempt connection  to ID %f ", data.motor_controller_id);
-                    try {
-                        if (data.motor_controller_id == motor_id) {
-                            RCLCPP_INFO(logger, "Auto connected to ID %d on %s", motor_id, port.c_str());
-                            port_name = port;
-                            return true;
-                        }
-                    } catch (const std::exception &e) {
-                        RCLCPP_INFO(logger, "Caught crash at get telemetry: %s", e.what());
-                    } catch(...) {
-                        RCLCPP_INFO(logger, "Caught unknown crash at get telemetry");
+                    RCLCPP_INFO(logger, "Telemetry on attempt %d, ID %u", attempt + 1, data.motor_controller_id);
+                    if (data.motor_controller_id == motor_id) {
+                        RCLCPP_INFO(logger, "Auto connected to ID %d on %s", motor_id, port.c_str());
+                        port_name = port;
+                        return true;
                     }
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(80));
             }
 
-            // Give up on this port for now
+            // Give up on this port
             running = false;
-            try { if (serial_port_ && serial_port_->IsOpen()) serial_port_->Close(); } catch(...) {}
+            try { serial_port_->Close(); } catch(...) {}
             serial_port_.reset();
 
         }
         catch(const std::exception& e){
-            RCLCPP_INFO(logger,"POrt failed brcause: %s",e.what());
-
+            RCLCPP_INFO(logger, "Port %s failed: %s", port.c_str(), e.what());
             running = false;
-            try{ if (serial_port_ && serial_port_->IsOpen()) serial_port_->Close(); } catch(...){
-                this_thread::sleep_for(chrono::milliseconds(100));
-            }
-            serial_port_.reset();
-            continue;
-        } catch(...) {
-            RCLCPP_INFO(logger,"POrt failed brcause: unknown");
-            running = false;
-            try{ if (serial_port_ && serial_port_->IsOpen()) serial_port_->Close(); } catch(...){
-                this_thread::sleep_for(chrono::milliseconds(100));
-            }
+            try { if(serial_port_) serial_port_->Close(); } catch(...) {}
             serial_port_.reset();
             continue;
         }
     }
     
-    // Si llegamos aquí, no se conectó a ningún puerto. Asegurar que serial_port_ sea válido
     if (!serial_port_) {
-        try {
-            serial_port_ = std::make_unique<SerialPort>();
-        } catch(...) {
-            RCLCPP_ERROR(logger, "Failed to recreate SerialPort after failed autoConnect");
-        }
+        serial_port_ = std::make_unique<SerialPort>();
     }
-    
     return false;
 }
-// ...existing code...
-// ...existing code...
 
 void VESC::set_rpm(int32_t rpm) {
-    if (!running || !serial_port_) return;
-    
-    // IsOpen() puede lanzar excepción
-    bool is_open = false;
-    try {
-        is_open = serial_port_->IsOpen();
-    } catch(const std::exception& e) {
-        RCLCPP_ERROR(logger, "set_rpm: IsOpen() threw: %s", e.what());
-        running = false;
-        return;
-    } catch(...) {
-        running = false;
-        return;
-    }
-    
-    if (!is_open) return;
+    if (!isConnected()) return;
 
     try{
         std::vector<uint8_t> payload;
@@ -320,23 +229,8 @@ void VESC::set_rpm(int32_t rpm) {
 }
 
 void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
-    if (!running || !serial_port_) return;
-    
-    // IsOpen() puede lanzar excepción
-    bool is_open = false;
-    try {
-        is_open = serial_port_->IsOpen();
-    } catch(const std::exception& e) {
-        RCLCPP_ERROR(logger, "send_packet: IsOpen() threw: %s", e.what());
-        running = false;
-        return;
-    } catch(...) {
-        running = false;
-        return;
-    }
-    
-    if (!is_open) return;
-    
+    if (!isConnected()) return;
+
     try{
         std::vector<uint8_t> packet;
         packet.push_back(2); // Start
@@ -408,40 +302,18 @@ std::vector<uint8_t> VESC::find_packet(const std::vector<uint8_t>& response){
 }
 
 void VESC::request_values() {
-    if (!running || !serial_port_) {
-        RCLCPP_ERROR(logger, "Cannot request: running=%d, serial_port_=%p", running, (void*)serial_port_.get());
-        return;
-    }
-    
-    // Verificar que el puerto esté abierto (puede lanzar excepción)
-    bool is_open = false;
+    if (!isConnected()) return;
+
     try {
-        is_open = serial_port_->IsOpen();
+        serial_port_->FlushInputBuffer();
+        serial_port_->FlushIOBuffers();
     } catch(const std::exception& e) {
-        RCLCPP_ERROR(logger, "IsOpen() threw: %s", e.what());
+        // Flush fails with EIO when USB is physically disconnected
+        RCLCPP_ERROR(logger, "Flush error: %s - port disconnected", e.what());
         running = false;
-        return;
-    } catch(...) {
-        RCLCPP_ERROR(logger, "IsOpen() threw unknown exception");
-        running = false;
-        return;
-    }
-    
-    if (!is_open) {
-        RCLCPP_ERROR(logger, "Serial port not open");
         return;
     }
 
-    try{
-        serial_port_->FlushInputBuffer();
-        serial_port_->FlushIOBuffers();
-        RCLCPP_DEBUG(logger, "Buffers flushed");
-    }catch(const std::exception& e){
-        RCLCPP_WARN(logger, "Flush error: %s - continuing anyway", e.what());
-    }catch(...){
-        RCLCPP_WARN(logger, "Unknown flush error - continuing anyway");
-    }
-    
     std::vector<uint8_t> payload;
     payload.push_back(4); // COMM_GET_VALUES
     send_vesc_packet(payload);
