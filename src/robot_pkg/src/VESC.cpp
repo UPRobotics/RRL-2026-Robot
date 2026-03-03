@@ -16,6 +16,11 @@ VESC::VESC(uint8_t id, int baud, int to) : motor_id(id), baudrate(baud), timeout
 
 VESC::~VESC() {
     disconnect();
+    // Release to prevent ~SerialPort() from throwing in a noexcept destructor
+    if (serial_port_) {
+        try { serial_port_->Close(); } catch(...) {}
+        serial_port_.release();
+    }
 }
 
 bool VESC::connect() {
@@ -74,41 +79,15 @@ bool VESC::connect() {
 
 void VESC::disconnect() {
     running = false;
-    
     if (!serial_port_) return;
     
     try {
-        if (serial_port_->IsOpen()) {
-            try{
-                serial_port_->DrainWriteBuffer();
-                serial_port_->FlushIOBuffers();
-            }catch(const std::exception& e){
-                RCLCPP_WARN(logger, "Error draining buffers during disconnect: %s", e.what());
-            }catch(...){
-                RCLCPP_WARN(logger, "Unknown error draining buffers during disconnect");
-            }
-            
-            try {
-                serial_port_->Close();
-                RCLCPP_INFO(logger, "Disconnected.");
-            } catch(const std::exception& e){
-                RCLCPP_ERROR(logger, "Error closing port: %s", e.what());
-            } catch(...){
-                RCLCPP_ERROR(logger, "Unknown error closing port");
-            }
-        }
-    } catch(const std::exception& e) {
-        RCLCPP_ERROR(logger, "Exception in disconnect: %s", e.what());
-    } catch(...){
-        RCLCPP_ERROR(logger, "Unknown exception in disconnect");
+        serial_port_->Close();
+        RCLCPP_INFO(logger, "Disconnected.");
+    } catch(...) {
+        // Close failed on dead fd — that's fine, we'll release() in destructor
+        RCLCPP_WARN(logger, "Close failed during disconnect (USB gone?)");
     }
-    
-    // Verificar si realmente cerró
-    try{
-        if(serial_port_ && serial_port_->IsOpen()){
-            RCLCPP_WARN(logger, "Port didnt close correctly");
-        }
-    }catch(...){}
 }
 
 bool VESC::isConnected()
@@ -146,7 +125,13 @@ bool VESC::autoConnect(){
         RCLCPP_INFO(logger,"detected the port %s", port.c_str());
 
         try{
-            // Recreate serial_port_ to avoid stale state
+            // Safely destroy old serial port.
+            // ~SerialPort() can throw on a dead USB fd → terminate().
+            // release() avoids calling the destructor. Minor leak, no crash.
+            if (serial_port_) {
+                try { serial_port_->Close(); } catch(...) {}
+                serial_port_.release();
+            }
             serial_port_ = std::make_unique<SerialPort>();
 
             // Open port (throws on failure, caught by outer catch)
@@ -175,7 +160,7 @@ bool VESC::autoConnect(){
             } catch (const std::exception &e) {
                 RCLCPP_WARN(logger, "Flush failed for %s: %s - skipping port", port.c_str(), e.what());
                 try { serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
+                serial_port_.release(); // release, don't reset — destructor can crash
                 continue;
             }
 
@@ -198,14 +183,14 @@ bool VESC::autoConnect(){
             // Give up on this port
             running = false;
             try { serial_port_->Close(); } catch(...) {}
-            serial_port_.reset();
+            serial_port_.release();
 
         }
         catch(const std::exception& e){
             RCLCPP_INFO(logger, "Port %s failed: %s", port.c_str(), e.what());
             running = false;
             try { if(serial_port_) serial_port_->Close(); } catch(...) {}
-            serial_port_.reset();
+            serial_port_.release();
             continue;
         }
     }
