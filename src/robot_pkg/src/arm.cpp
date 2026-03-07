@@ -31,15 +31,14 @@ public:
 
         // Create a timer to send commands at 20Hz (every 50ms)
         timer_ = this->create_wall_timer(
-            50ms, std::bind(&ArmNode::timer_callback, this));
+            20ms, std::bind(&ArmNode::timer_callback, this));
 
-
-        y_Axis_subscriber = create_subscription<std_msgs::msg::Float32>(
-        "/arm/y_axis", 10,
-        [this](const std_msgs::msg::Float32::SharedPtr msg) {
-            this->desired_rpms = msg->data;
-        }
-);
+        y_left_axis_subscriber = create_subscription<std_msgs::msg::Float32>(
+            "/y_left_axis", 10,
+            [this](const std_msgs::msg::Float32::SharedPtr msg) {
+                this->desired_rpms = msg->data;
+            }
+        );
     }
     ~ArmNode() {
             armMotor.set_rpm(0); 
@@ -49,23 +48,13 @@ public:
 private:
     void timer_callback() {
         if(armMotor.isConnected()){
-
         telemetry();
         armMotor.set_rpm(desired_rpms * 1500);
         }else{
-                        RCLCPP_INFO(get_logger(),"not connected 1");
-
-            //armMotor.closePort();
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-
+            RCLCPP_INFO(get_logger(),"not connected 1");
             armMotor.autoConnect();
             return;
-        }
-//        int32_t target_rpm = 1500; 
-      //  if(test){
-      //  }else{
-//armMotor.set_rpm(0);
-//        }     
+        }  
     }
 
     void telemetry(){
@@ -73,11 +62,10 @@ private:
 
             if(armMotor.get_telemetry(m_telemetry)){
             RCLCPP_INFO(get_logger(),
-            "RPM: %d | Subscription: %.2f | Motor id: %u",
+            "RPM: %d | Subscription: %.2f | Motor id: %f",
             m_telemetry.rpm,
             desired_rpms,
             m_telemetry.motor_controller_id);
-            //RCLCPP_DEBUG(this->get_logger(), "Sending RPM: %d", 15000);
             }
         }    
 
@@ -86,16 +74,12 @@ private:
     /* Publishers and subscribers */
     rclcpp::TimerBase::SharedPtr timer_;
     //rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr button_A_subscriber;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr y_Axis_subscriber;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr y_left_axis_subscriber;
 
     /* A button test*/
-    bool test = false;
-
     float desired_rpms = 0.0f;
 
     // ---- Parameters ----
-    int baudrate_;
-    int run_rpm_;
 };
 
 int main(int argc, char * argv[])

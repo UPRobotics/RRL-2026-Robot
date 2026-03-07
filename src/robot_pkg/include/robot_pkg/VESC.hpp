@@ -39,12 +39,12 @@ class VESC{
         std::unique_ptr<LibSerial::SerialPort> serial_port_;
         bool running = false;
         rclcpp::Logger logger;
+        
+        void setupPort();
+        
         // Métodos estáticos
         static uint16_t crc16(const std::vector<uint8_t>& data, uint16_t poly = 0x1021, uint16_t init_val = 0);
         static std::vector<uint8_t> find_packet(const std::vector<uint8_t>& response);
-        static float current_motor(const std::vector<uint8_t>& data);
-        static float temp_mos1(const std::vector<uint8_t>& data);
-        static float temp_motor(const std::vector<uint8_t>& data);
         
     public:
         VESC(uint8_t id, int baud = 115200, int to = 1000);
@@ -52,7 +52,6 @@ class VESC{
 
         bool connect();
         void disconnect();
-        void closePort();
         bool autoConnect();
         bool isConnected();
         
