@@ -15,7 +15,7 @@ struct VESCData {
     float temp_motor = 0.0f;
     float current_motor = 0.0f;
     float current_in = 0.0f;
-    float motor_id = 0.0f;
+    uint8_t motor_controller_id = 0xFF;
     float current_iq = 0.0f;
     float duty_cycle = 0.0f;
     int32_t rpm = 0;
@@ -39,19 +39,21 @@ class VESC{
         std::unique_ptr<LibSerial::SerialPort> serial_port_;
         bool running = false;
         rclcpp::Logger logger;
+        
+        void setupPort();
+        
         // Métodos estáticos
         static uint16_t crc16(const std::vector<uint8_t>& data, uint16_t poly = 0x1021, uint16_t init_val = 0);
         static std::vector<uint8_t> find_packet(const std::vector<uint8_t>& response);
-        static float current_motor(const std::vector<uint8_t>& data);
-        static float temp_mos1(const std::vector<uint8_t>& data);
-        static float temp_motor(const std::vector<uint8_t>& data);
         
     public:
-        VESC(std::string port, uint8_t id, int baud = 115200, int to = 1000);
+        VESC(uint8_t id, int baud = 115200, int to = 1000);
         ~VESC();
 
         bool connect();
         void disconnect();
+        bool autoConnect();
+        bool isConnected();
         
         // Write data to the VESC
         void send_vesc_packet(const std::vector<uint8_t> &payload);
