@@ -1,4 +1,0 @@
-Example just as a mental reference
-
-arm = 1
-elbow = 2
