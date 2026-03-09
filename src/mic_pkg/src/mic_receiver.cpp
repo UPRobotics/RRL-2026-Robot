@@ -78,13 +78,15 @@ void MicReceiver::switchLanguage(const std::string& lang)
     // Set up callback on new recognizer
     new_recognizer->setCallback([this](const std::string& text, bool is_final) {
         if (is_final) {
-            if (window_) window_->addFinal(text);
+            std::string converted = NumberConverter::convert(text, current_lang_);
+            if (window_) window_->addFinal(converted);
             auto msg = std_msgs::msg::String();
-            msg.data = text;
+            msg.data = converted;
             text_publisher_->publish(msg);
-            RCLCPP_INFO(this->get_logger(), "[FINAL] %s", text.c_str());
+            RCLCPP_INFO(this->get_logger(), "[FINAL] %s", converted.c_str());
         } else {
-            if (window_) window_->setPartial(text);
+            std::string converted = NumberConverter::convert(text, current_lang_);
+            if (window_) window_->setPartial(converted);
         }
     });
 

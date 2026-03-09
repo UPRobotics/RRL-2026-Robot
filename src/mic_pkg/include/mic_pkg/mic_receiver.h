@@ -9,6 +9,7 @@
 #include <mutex>
 #include "mic_pkg/speech_recognizer.h"
 #include "mic_pkg/transcript_window.h"
+#include "mic_pkg/number_converter.h"
 
 namespace mic_pkg {
 

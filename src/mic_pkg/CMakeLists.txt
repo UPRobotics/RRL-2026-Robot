@@ -61,6 +61,7 @@ add_executable(mic_receiver_node
   src/mic_receiver.cpp
   src/speech_recognizer.cpp
   src/transcript_window.cpp
+  src/number_converter.cpp
 )
 
 target_include_directories(mic_receiver_node PUBLIC
