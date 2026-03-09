@@ -46,9 +46,32 @@ ament_target_dependencies(mic_transmitter_node
 )
 
 # -------------------------------------------------------
+# mic_receiver node
+# -------------------------------------------------------
+add_executable(mic_receiver_node
+  src/mic_receiver_main.cpp
+  src/mic_receiver.cpp
+)
+
+target_include_directories(mic_receiver_node PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+  ${ALSA_INCLUDE_DIRS}
+)
+
+target_link_libraries(mic_receiver_node
+  ${ALSA_LIBRARIES}
+)
+
+ament_target_dependencies(mic_receiver_node
+  rclcpp
+  std_msgs
+)
+
+# -------------------------------------------------------
 # Install
 # -------------------------------------------------------
-install(TARGETS mic_transmitter_node
+install(TARGETS mic_transmitter_node mic_receiver_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

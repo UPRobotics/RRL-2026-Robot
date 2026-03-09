@@ -11,9 +11,21 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'device': 'hw:2,0',
-                'sample_rate': 16000,
+                'sample_rate': 48000,
                 'channels': 1,
-                'frames_per_period': 1024,
+                'frames_per_period': 512,
+            }],
+        ),
+        Node(
+            package='mic_pkg',
+            executable='mic_receiver_node',
+            name='mic_receiver',
+            output='screen',
+            parameters=[{
+                'device': 'default',
+                'sample_rate': 48000,
+                'channels': 1,
+                'frames_per_period': 512,
             }],
         ),
     ])

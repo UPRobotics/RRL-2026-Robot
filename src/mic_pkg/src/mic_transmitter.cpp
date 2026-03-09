@@ -7,9 +7,9 @@ MicTransmitter::MicTransmitter()
 {
     // Declare parameters with defaults
     this->declare_parameter<std::string>("device", "hw:2,0");
-    this->declare_parameter<int>("sample_rate", 16000);
+    this->declare_parameter<int>("sample_rate", 48000);
     this->declare_parameter<int>("channels", 1);
-    this->declare_parameter<int>("frames_per_period", 1024);
+    this->declare_parameter<int>("frames_per_period", 512);
 
     device_ = this->get_parameter("device").as_string();
     sample_rate_ = static_cast<unsigned int>(this->get_parameter("sample_rate").as_int());
@@ -75,10 +75,15 @@ bool MicTransmitter::openDevice()
         return false;
     }
 
+    unsigned int requested_rate = sample_rate_;
     err = snd_pcm_hw_params_set_rate_near(capture_handle_, hw_params, &sample_rate_, nullptr);
     if (err < 0) {
         RCLCPP_ERROR(this->get_logger(), "set_rate: %s", snd_strerror(err));
         return false;
+    }
+    if (sample_rate_ != requested_rate) {
+        RCLCPP_WARN(this->get_logger(), "Requested rate %u, device negotiated %u",
+                    requested_rate, sample_rate_);
     }
 
     err = snd_pcm_hw_params_set_channels(capture_handle_, hw_params, channels_);
@@ -90,6 +95,14 @@ bool MicTransmitter::openDevice()
     err = snd_pcm_hw_params_set_period_size_near(capture_handle_, hw_params, &frames_, nullptr);
     if (err < 0) {
         RCLCPP_ERROR(this->get_logger(), "set_period_size: %s", snd_strerror(err));
+        return false;
+    }
+
+    // Use 2 periods for low latency
+    unsigned int periods = 2;
+    err = snd_pcm_hw_params_set_periods_near(capture_handle_, hw_params, &periods, nullptr);
+    if (err < 0) {
+        RCLCPP_ERROR(this->get_logger(), "set_periods: %s", snd_strerror(err));
         return false;
     }
 
