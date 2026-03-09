@@ -10,7 +10,9 @@ def generate_launch_description():
             name='mic_transmitter',
             output='screen',
             parameters=[{
-                'device': 'hw:2,0',
+                'device': 'auto',
+                'usb_vendor_id': '4c4a',
+                'usb_product_id': '4155',
                 'sample_rate': 48000,
                 'channels': 1,
                 'frames_per_period': 512,

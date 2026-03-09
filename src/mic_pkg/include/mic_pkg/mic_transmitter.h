@@ -16,6 +16,9 @@ public:
     ~MicTransmitter() override;
 
 private:
+    // USB device auto-detection
+    std::string findDeviceByUsbId(const std::string& vendor_id, const std::string& product_id);
+
     // ALSA capture
     bool openDevice();
     void closeDevice();
@@ -28,10 +31,12 @@ private:
     snd_pcm_t* capture_handle_ = nullptr;
 
     // Parameters
-    std::string device_;         // ALSA device name (e.g. "hw:2,0")
-    unsigned int sample_rate_;   // Sample rate in Hz
-    unsigned int channels_;      // Number of channels
-    snd_pcm_uframes_t frames_;  // Frames per period (chunk size)
+    std::string device_;         // ALSA device name (e.g. "hw:2,0") or "auto"
+    std::string usb_vendor_id_;  // USB vendor ID for auto-detection
+    std::string usb_product_id_; // USB product ID for auto-detection
+    unsigned int sample_rate_;
+    unsigned int channels_;
+    snd_pcm_uframes_t frames_;
 
     // Capture thread
     std::thread capture_thread_;

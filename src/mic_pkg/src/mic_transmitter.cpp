@@ -1,20 +1,93 @@
 #include "mic_pkg/mic_transmitter.h"
+#include <filesystem>
+#include <fstream>
+
+namespace fs = std::filesystem;
 
 namespace mic_pkg {
+
+std::string MicTransmitter::findDeviceByUsbId(const std::string& vendor_id,
+                                               const std::string& product_id)
+{
+    // Scan /sys/class/sound/cardN, resolve the device symlink,
+    // walk parent directories looking for idVendor/idProduct match.
+    const fs::path snd_class("/sys/class/sound");
+
+    for (auto& entry : fs::directory_iterator(snd_class)) {
+        std::string name = entry.path().filename().string();
+        if (name.substr(0, 4) != "card") continue;
+        if (name.find('D') != std::string::npos) continue; // skip cardXDY (pcm devices)
+
+        int card_num = -1;
+        try { card_num = std::stoi(name.substr(4)); }
+        catch (...) { continue; }
+
+        // Resolve the device symlink to get the real sysfs path
+        fs::path dev_link = entry.path() / "device";
+        if (!fs::exists(dev_link)) continue;
+
+        fs::path real_path;
+        try { real_path = fs::canonical(dev_link); }
+        catch (...) { continue; }
+
+        // Walk up parent directories looking for idVendor/idProduct
+        fs::path search = real_path;
+        while (search != search.root_path()) {
+            fs::path vf = search / "idVendor";
+            fs::path pf = search / "idProduct";
+            if (fs::exists(vf) && fs::exists(pf)) {
+                std::ifstream vfs(vf), pfs(pf);
+                std::string vid, pid;
+                std::getline(vfs, vid);
+                std::getline(pfs, pid);
+                // Trim whitespace
+                while (!vid.empty() && std::isspace(vid.back())) vid.pop_back();
+                while (!pid.empty() && std::isspace(pid.back())) pid.pop_back();
+
+                if (vid == vendor_id && pid == product_id) {
+                    std::string device = "hw:" + std::to_string(card_num) + ",0";
+                    RCLCPP_INFO(this->get_logger(),
+                        "Auto-detected USB device %s:%s as ALSA %s (card %d)",
+                        vendor_id.c_str(), product_id.c_str(),
+                        device.c_str(), card_num);
+                    return device;
+                }
+                break;  // Found USB IDs but didn't match — stop walking up
+            }
+            search = search.parent_path();
+        }
+    }
+    return {};  // Not found
+}
 
 MicTransmitter::MicTransmitter()
     : Node("mic_transmitter")
 {
     // Declare parameters with defaults
-    this->declare_parameter<std::string>("device", "hw:2,0");
+    this->declare_parameter<std::string>("device", "auto");
+    this->declare_parameter<std::string>("usb_vendor_id", "4c4a");
+    this->declare_parameter<std::string>("usb_product_id", "4155");
     this->declare_parameter<int>("sample_rate", 48000);
     this->declare_parameter<int>("channels", 1);
     this->declare_parameter<int>("frames_per_period", 512);
 
     device_ = this->get_parameter("device").as_string();
+    usb_vendor_id_ = this->get_parameter("usb_vendor_id").as_string();
+    usb_product_id_ = this->get_parameter("usb_product_id").as_string();
     sample_rate_ = static_cast<unsigned int>(this->get_parameter("sample_rate").as_int());
     channels_ = static_cast<unsigned int>(this->get_parameter("channels").as_int());
     frames_ = static_cast<snd_pcm_uframes_t>(this->get_parameter("frames_per_period").as_int());
+
+    // Auto-detect device by USB ID
+    if (device_ == "auto") {
+        device_ = findDeviceByUsbId(usb_vendor_id_, usb_product_id_);
+        if (device_.empty()) {
+            RCLCPP_ERROR(this->get_logger(),
+                "USB microphone %s:%s not found — is it connected?",
+                usb_vendor_id_.c_str(), usb_product_id_.c_str());
+            return;
+        }
+    }
 
     RCLCPP_INFO(this->get_logger(), "Mic transmitter starting — device=%s rate=%u ch=%u frames=%lu",
                 device_.c_str(), sample_rate_, channels_, frames_);
