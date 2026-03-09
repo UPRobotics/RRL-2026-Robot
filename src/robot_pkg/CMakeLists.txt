@@ -56,17 +56,6 @@ install(TARGETS body_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# ---------- JOYSTICK NODE ----------
-add_executable(joystick_node
-  src/JoyStickListener.cpp
-)
-
-target_include_directories(joystick_node PUBLIC ${COMMON_INCLUDES})
-ament_target_dependencies(joystick_node ${COMMON_DEPS})
-
-install(TARGETS joystick_node
-  DESTINATION lib/${PROJECT_NAME}
-)
 
 
 # ---------- LINT ----------

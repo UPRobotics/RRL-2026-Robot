@@ -1,16 +1,15 @@
 #include "rclcpp/rclcpp.hpp"
 #include "robot_pkg/VESC.hpp"
 #include "std_msgs/msg/float32.hpp" 
+#include "std_msgs/msg/float32_multi_array.hpp" 
+#include <chrono>
+#include <functional>
 
 using namespace std;
+using namespace std::chrono_literals;
 
 class BodyNode : public rclcpp::Node{
     public:
-        //TODO: Remember to check for each port
-        string leftPortName = "/dev/ttyACM0";
-        string rightPortName = "/dev/ttyACM1";
-        string leftFlipperPortName = "/dev/ttyACM2";
-        string rightFlipperPortName = "/dev/ttyACM3";
 
         int leftMotorId = 0;
         int rightMotorId = 1;
@@ -88,6 +87,22 @@ class BodyNode : public rclcpp::Node{
                 [this](const std_msgs::msg::Float32::SharedPtr msg) {
                     this->joystick_flipper = msg->data;
                 });
+
+
+            left_full_telemetry_pub = create_publisher<std_msgs::msg::Float32MultiArray>(
+            "/body_left/telemetry", 10);
+            right_full_telemetry_pub = create_publisher<std_msgs::msg::Float32MultiArray>(
+            "/body_right/telemetry", 10);
+            // flipper telemetry topics
+            left_flipper_full_telemetry_pub = create_publisher<std_msgs::msg::Float32MultiArray>(
+            "/body_left_flipper/telemetry", 10);
+            right_flipper_full_telemetry_pub = create_publisher<std_msgs::msg::Float32MultiArray>(
+            "/body_right_flipper/telemetry", 10);
+
+            // setup telemetry timer
+            callback_group_telemetry_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+            telemetry_timer_ = this->create_wall_timer(
+                50ms, bind(&BodyNode::telemetry, this), callback_group_telemetry_);
             }
         ~BodyNode() {
             leftMotor.disconnect();
@@ -135,6 +150,55 @@ class BodyNode : public rclcpp::Node{
         rightFlipperMotor.set_rpm(joystick_flipper * -rightFlipperMaxRPM);
     }
 
+    void telemetry(){
+        VESCData m_telemetry;
+
+        if(leftMotor.get_telemetry(m_telemetry)){
+          std_msgs::msg::Float32MultiArray msg;
+            msg.data = {
+                static_cast<float>(m_telemetry.rpm),
+                static_cast<float>(m_telemetry.motor_controller_id),
+                m_telemetry.input_voltage,
+                m_telemetry.current_motor,
+            };
+            left_full_telemetry_pub->publish(msg);
+        }
+
+        if(rightMotor.get_telemetry(m_telemetry)){
+          std_msgs::msg::Float32MultiArray msg;
+            msg.data = {
+                static_cast<float>(m_telemetry.rpm),
+                static_cast<float>(m_telemetry.motor_controller_id),
+                m_telemetry.input_voltage,
+                m_telemetry.current_motor,
+            };
+            right_full_telemetry_pub->publish(msg);
+        }
+
+        // flipper telemetry
+        if(leftFlipperMotor.get_telemetry(m_telemetry)){
+            std_msgs::msg::Float32MultiArray msg;
+            msg.data = {
+                static_cast<float>(m_telemetry.rpm),
+                static_cast<float>(m_telemetry.motor_controller_id),
+                m_telemetry.input_voltage,
+                m_telemetry.current_motor,
+            };
+            left_flipper_full_telemetry_pub->publish(msg);
+        }
+        if(rightFlipperMotor.get_telemetry(m_telemetry)){
+            std_msgs::msg::Float32MultiArray msg;
+            msg.data = {
+                static_cast<float>(m_telemetry.rpm),
+                static_cast<float>(m_telemetry.motor_controller_id),
+                m_telemetry.input_voltage,
+                m_telemetry.current_motor,
+            };
+            right_flipper_full_telemetry_pub->publish(msg);
+        }
+
+    }
+
     VESC leftMotor;
     VESC rightMotor;
     VESC leftFlipperMotor;
@@ -154,6 +218,15 @@ class BodyNode : public rclcpp::Node{
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr y_left_Axis_subscriber;
     rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr flipper_axis_subscriber;
     
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr left_full_telemetry_pub;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr right_full_telemetry_pub;
+    // telemetry publishers for flipper motors
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr left_flipper_full_telemetry_pub;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr right_flipper_full_telemetry_pub;
+    // timer and callback group for periodic telemetry
+    rclcpp::TimerBase::SharedPtr telemetry_timer_;
+    rclcpp::CallbackGroup::SharedPtr callback_group_telemetry_;
+
     float joystick_left_y = 0.0f;
     float joystick_flipper = 0.0f;
 };
