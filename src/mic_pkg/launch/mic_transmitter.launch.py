@@ -26,6 +26,9 @@ def generate_launch_description():
                 'sample_rate': 48000,
                 'channels': 1,
                 'frames_per_period': 512,
+                'model_path_en': '/home/chumbi/roboticaWS/models/vosk-model-small-en-us-0.15',
+                'model_path_es': '/home/chumbi/roboticaWS/models/vosk-model-small-es-0.42',
+                'lang': 'en',
             }],
         ),
     ])

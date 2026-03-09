@@ -15,7 +15,11 @@
 
   <!-- System dependencies -->
   <build_depend>libasound2-dev</build_depend>
+  <build_depend>libsdl2-dev</build_depend>
+  <build_depend>libsdl2-ttf-dev</build_depend>
   <exec_depend>libasound2</exec_depend>
+  <exec_depend>libsdl2-2.0-0</exec_depend>
+  <exec_depend>libsdl2-ttf-2.0-0</exec_depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>

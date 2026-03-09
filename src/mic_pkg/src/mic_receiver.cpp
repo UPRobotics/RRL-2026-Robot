@@ -9,11 +9,19 @@ MicReceiver::MicReceiver()
     this->declare_parameter<int>("sample_rate", 48000);
     this->declare_parameter<int>("channels", 1);
     this->declare_parameter<int>("frames_per_period", 512);
+    this->declare_parameter<std::string>("model_path_en",
+        "/home/chumbi/roboticaWS/models/vosk-model-small-en-us-0.15");
+    this->declare_parameter<std::string>("model_path_es",
+        "/home/chumbi/roboticaWS/models/vosk-model-small-es-0.42");
+    this->declare_parameter<std::string>("lang", "en");
 
     device_ = this->get_parameter("device").as_string();
     sample_rate_ = static_cast<unsigned int>(this->get_parameter("sample_rate").as_int());
     channels_ = static_cast<unsigned int>(this->get_parameter("channels").as_int());
     frames_ = static_cast<snd_pcm_uframes_t>(this->get_parameter("frames_per_period").as_int());
+    model_path_en_ = this->get_parameter("model_path_en").as_string();
+    model_path_es_ = this->get_parameter("model_path_es").as_string();
+    current_lang_ = this->get_parameter("lang").as_string();
 
     RCLCPP_INFO(this->get_logger(), "Mic receiver starting — device=%s rate=%u ch=%u frames=%lu",
                 device_.c_str(), sample_rate_, channels_, frames_);
@@ -27,12 +35,69 @@ MicReceiver::MicReceiver()
         "audio_raw", 10,
         std::bind(&MicReceiver::audioCallback, this, std::placeholders::_1));
 
+    text_publisher_ = this->create_publisher<std_msgs::msg::String>("speech_text", 10);
+
+    // Create transcript window first
+    window_ = std::make_unique<TranscriptWindow>(600, 300, 18);
+    window_->setLanguage(current_lang_ == "es" ? "ES" : "EN");
+    window_->setLanguageCallback([this](const std::string& lang) {
+        switchLanguage(lang == "ES" ? "es" : "en");
+    });
+
+    // Load initial model
+    switchLanguage(current_lang_);
+
     RCLCPP_INFO(this->get_logger(), "Subscribed to audio_raw topic");
 }
 
 MicReceiver::~MicReceiver()
 {
+    window_.reset();
+    std::lock_guard<std::mutex> lock(recognizer_mutex_);
+    recognizer_.reset();
     closeDevice();
+}
+
+void MicReceiver::switchLanguage(const std::string& lang)
+{
+    const std::string& model_path = (lang == "es") ? model_path_es_ : model_path_en_;
+
+    RCLCPP_INFO(this->get_logger(), "Switching to %s model: %s",
+                lang.c_str(), model_path.c_str());
+
+    auto new_recognizer = std::make_unique<SpeechRecognizer>(
+        model_path, static_cast<float>(sample_rate_));
+
+    if (!new_recognizer->isValid()) {
+        RCLCPP_ERROR(this->get_logger(), "Failed to load Vosk model from '%s'", model_path.c_str());
+        return;
+    }
+
+    current_lang_ = lang;
+
+    // Set up callback on new recognizer
+    new_recognizer->setCallback([this](const std::string& text, bool is_final) {
+        if (is_final) {
+            if (window_) window_->addFinal(text);
+            auto msg = std_msgs::msg::String();
+            msg.data = text;
+            text_publisher_->publish(msg);
+            RCLCPP_INFO(this->get_logger(), "[FINAL] %s", text.c_str());
+        } else {
+            if (window_) window_->setPartial(text);
+        }
+    });
+
+    {
+        std::lock_guard<std::mutex> lock(recognizer_mutex_);
+        recognizer_ = std::move(new_recognizer);
+    }
+
+    if (window_) {
+        window_->setLanguage(lang == "es" ? "ES" : "EN");
+    }
+
+    RCLCPP_INFO(this->get_logger(), "Now using %s model", lang.c_str());
 }
 
 bool MicReceiver::openDevice()
@@ -110,8 +175,6 @@ bool MicReceiver::openDevice()
     RCLCPP_INFO(this->get_logger(), "ALSA playback device opened: rate=%u ch=%u period=%lu periods=%u buffer=%lu",
                 sample_rate_, channels_, frames_, periods, buffer_size);
 
-    // Pre-fill buffer with silence so playback doesn't underrun immediately
-    prefillSilence();
     return true;
 }
 
@@ -140,6 +203,13 @@ void MicReceiver::audioCallback(const std_msgs::msg::UInt8MultiArray::SharedPtr 
         return;
     }
 
+    // On first audio or after recovery, prepare and prefill
+    if (needs_prepare_) {
+        snd_pcm_prepare(playback_handle_);
+        prefillSilence();
+        needs_prepare_ = false;
+    }
+
     const size_t bytes_per_frame = channels_ * 2;  // S16_LE = 2 bytes per sample
     const snd_pcm_uframes_t frame_count = msg->data.size() / bytes_per_frame;
 
@@ -149,8 +219,17 @@ void MicReceiver::audioCallback(const std_msgs::msg::UInt8MultiArray::SharedPtr 
     if (written < 0) {
         RCLCPP_WARN(this->get_logger(), "ALSA write error: %s — recovering",
                     snd_strerror(static_cast<int>(written)));
-        snd_pcm_prepare(playback_handle_);
-        prefillSilence();
+        needs_prepare_ = true;
+    }
+
+    // Feed audio to speech recognizer
+    {
+        std::lock_guard<std::mutex> lock(recognizer_mutex_);
+        if (recognizer_) {
+            recognizer_->feedAudio(
+                reinterpret_cast<const char*>(msg->data.data()),
+                static_cast<int>(msg->data.size()));
+        }
     }
 }
 
