@@ -12,6 +12,7 @@
   <!-- ROS2 dependencies -->
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
+  <depend>ament_index_cpp</depend>
 
   <!-- System dependencies -->
   <build_depend>libsdl2-dev</build_depend>

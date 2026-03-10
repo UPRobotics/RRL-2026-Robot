@@ -1,18 +1,19 @@
 {
   "camera": {
+    "rotation": 270,
     "rtsp_url": "rtsp://admin:admin@192.168.0.206:554/profile0",
     "rtsp_url_lowres": "rtsp://admin:admin@192.168.0.206:554/profile1"
   },
   "detection": {
-    "qr_detect_interval": 5,
+    "motion_accumulate_weight": 0.15,
     "motion_min_area": 5000,
-    "motion_skip_frames": 5,
-    "motion_threshold": 50,
-    "motion_accumulate_weight": 0.15
+    "motion_skip_frames": 1,
+    "motion_threshold": 50.0,
+    "qr_detect_interval": 1
   },
   "display": {
-    "window_width": 1280,
+    "magnetometer_panel_width": 300,
     "window_height": 720,
-    "magnetometer_panel_width": 300
+    "window_width": 1280
   }
 }

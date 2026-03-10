@@ -11,6 +11,7 @@
 #include <memory>
 #include <opencv2/core.hpp>
 #include <vector>
+#include <set>
 
 namespace detections {
 
@@ -36,6 +37,9 @@ private:
     void renderSettingsPanel(SDL_Renderer* r, SDL_Rect area);
     void handleMouseClick(int mx, int my);
     void saveConfig();
+    void rotateFrame(cv::Mat& frame);
+    void saveQRFrame(const cv::Mat& frame, const QRDetection& qr);
+    void renderQRCrop(SDL_Renderer* r, SDL_Rect videoArea);
 
     // Returns true if (mx,my) is inside rect
     static bool inRect(int mx, int my, SDL_Rect r) {
@@ -75,6 +79,17 @@ private:
     int m_frameH = 0;
 
     bool m_quit = false;
+
+    // QR crop display
+    SDL_Texture* m_qrCropTex = nullptr;
+    int m_qrCropW = 0;
+    int m_qrCropH = 0;
+    std::string m_qrCropData;
+    std::chrono::steady_clock::time_point m_qrCropTime;
+
+    // Last full frame for QR save
+    cv::Mat m_lastFrame;
+    std::set<std::string> m_seenQRData;
 
     // Font
     TTF_Font* m_font12 = nullptr;

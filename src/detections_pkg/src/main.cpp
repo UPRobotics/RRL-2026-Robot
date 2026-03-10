@@ -1,6 +1,7 @@
 #include <spdlog/spdlog.h>
 #include <rclcpp/rclcpp.hpp>
 #include <nlohmann/json.hpp>
+#include <ament_index_cpp/get_package_share_directory.hpp>
 #include <fstream>
 #include <cstring>
 
@@ -53,6 +54,9 @@ static detections::DetectionConfig loadConfig(const std::string& path) {
             cfg.window_height   = disp.value("window_height", 720);
             cfg.mag_panel_width = disp.value("magnetometer_panel_width", 300);
         }
+        if (j.contains("camera")) {
+            cfg.rotation = j["camera"].value("rotation", 0);
+        }
     } catch (const std::exception& e) {
         spdlog::error("Failed to parse config: {}", e.what());
     }
@@ -82,9 +86,14 @@ int main(int argc, char* argv[]) {
     auto node = rclcpp::Node::make_shared("detections_pkg");
 
     // Resolve config directory
-    std::string configDir = ".";
-    node->declare_parameter<std::string>("config_dir", ".");
-    configDir = node->get_parameter("config_dir").as_string();
+    std::string defaultConfigDir;
+    try {
+        defaultConfigDir = ament_index_cpp::get_package_share_directory("detections_pkg") + "/config";
+    } catch (const std::exception&) {
+        defaultConfigDir = ".";
+    }
+    node->declare_parameter<std::string>("config_dir", defaultConfigDir);
+    std::string configDir = node->get_parameter("config_dir").as_string();
     spdlog::info("Config directory: {}", configDir);
 
     std::string configPath = configDir + "/detections_config.json";

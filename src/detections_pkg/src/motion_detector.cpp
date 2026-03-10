@@ -5,6 +5,12 @@ namespace detections {
 
 MotionDetector::MotionDetector() = default;
 
+void MotionDetector::reset() {
+    m_avg.release();
+    m_cached.clear();
+    m_frameCount = 0;
+}
+
 std::vector<MotionBox> MotionDetector::detect(
     const cv::Mat& bgrFrame, int skipFrames, int minArea,
     double threshold, double weight)
@@ -17,6 +23,13 @@ std::vector<MotionBox> MotionDetector::detect(
 
     if (m_avg.empty()) {
         gray.convertTo(m_avg, CV_32F);
+        return {};
+    }
+
+    // Reset if frame size changed (e.g. rotation)
+    if (gray.size() != m_avg.size()) {
+        gray.convertTo(m_avg, CV_32F);
+        m_cached.clear();
         return {};
     }
 

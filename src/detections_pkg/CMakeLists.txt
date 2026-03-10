@@ -14,6 +14,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # -------------------------------------------------------
 # System deps via pkg-config
@@ -35,7 +36,7 @@ if(NOT nlohmann_json_FOUND)
   pkg_check_modules(NLOHMANN_JSON REQUIRED nlohmann_json)
 endif()
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 pkg_check_modules(ZBAR REQUIRED zbar)
 
 # -------------------------------------------------------
@@ -88,6 +89,7 @@ target_link_libraries(detections_pkg_node
 ament_target_dependencies(detections_pkg_node
   rclcpp
   std_msgs
+  ament_index_cpp
 )
 
 # -------------------------------------------------------
@@ -109,9 +111,9 @@ install(DIRECTORY
 )
 
 # -------------------------------------------------------
-# Launch files (if any added later)
+# Launch files
 # -------------------------------------------------------
-# install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 # -------------------------------------------------------
 # Testing

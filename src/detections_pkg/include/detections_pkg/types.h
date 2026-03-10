@@ -67,6 +67,9 @@ struct DetectionConfig {
     int window_height = 720;
     int mag_panel_width = 300;
 
+    // Camera rotation (0, 90, 180, 270)
+    int rotation = 0;
+
     // Runtime (not serialized)
     std::string config_path;  // path to JSON file for saving
 };

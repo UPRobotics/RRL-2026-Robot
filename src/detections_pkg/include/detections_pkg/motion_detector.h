@@ -18,6 +18,9 @@ public:
                                   double threshold,
                                   double weight);
 
+    /// Reset accumulated background (e.g. after rotation change)
+    void reset();
+
 private:
     cv::Mat m_avg;          // running average (float)
     int m_frameCount = 0;

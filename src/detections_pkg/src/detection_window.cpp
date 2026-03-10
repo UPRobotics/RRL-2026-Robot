@@ -4,6 +4,9 @@
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
+#include <chrono>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 namespace detections {
 
@@ -101,6 +104,8 @@ void DetectionWindow::shutdown() {
     m_stream.reset();
     m_magPanel.reset();
 
+    if (m_qrCropTex) { SDL_DestroyTexture(m_qrCropTex); m_qrCropTex = nullptr; }
+
     if (m_font12) TTF_CloseFont(m_font12);
     if (m_font14) TTF_CloseFont(m_font14);
     if (m_font16) TTF_CloseFont(m_font16);
@@ -124,8 +129,12 @@ bool DetectionWindow::spinOnce() {
     // Grab latest BGR for detections
     cv::Mat bgr;
     if (m_stream->getLatestBGRFrame(bgr)) {
+        // Apply rotation
+        rotateFrame(bgr);
+
         m_frameW = bgr.cols;
         m_frameH = bgr.rows;
+        m_lastFrame = bgr.clone();
 
         // Run detections
         m_qrResults = m_qrDetector.detect(
@@ -136,6 +145,11 @@ bool DetectionWindow::spinOnce() {
             m_config.motion_min_area,
             m_config.motion_threshold,
             m_config.motion_accumulate_weight);
+
+        // If QR detected, save frame and create crop texture
+        if (!m_qrResults.empty()) {
+            saveQRFrame(bgr, m_qrResults[0]);
+        }
     }
 
     render();
@@ -155,6 +169,12 @@ void DetectionWindow::processEvents() {
             case SDL_KEYDOWN:
                 if (e.key.keysym.sym == SDLK_q || e.key.keysym.sym == SDLK_ESCAPE)
                     m_quit = true;
+                else if (e.key.keysym.sym == SDLK_r) {
+                    m_config.rotation = (m_config.rotation + 90) % 360;
+                    spdlog::info("Rotation set to {}°", m_config.rotation);
+                    m_motionDetector.reset();
+                    saveConfig();
+                }
                 break;
             case SDL_MOUSEBUTTONDOWN:
                 if (e.button.button == SDL_BUTTON_LEFT)
@@ -200,25 +220,43 @@ void DetectionWindow::render() {
     SDL_Texture* tex = m_stream->getTexture();
     SDL_Rect videoRect = {0, 0, videoAreaW, winH};
 
+    double renderAngle = static_cast<double>(m_config.rotation);
+    bool rotated90 = (m_config.rotation == 90 || m_config.rotation == 270);
+
     if (tex) {
         // Fit video maintaining aspect ratio
         int texW = 0, texH = 0;
         SDL_QueryTexture(tex, nullptr, nullptr, &texW, &texH);
 
-        float scaleX = static_cast<float>(videoAreaW) / texW;
-        float scaleY = static_cast<float>(winH) / texH;
+        // When rotated 90/270, swap effective dimensions for aspect ratio calc
+        int effectiveW = rotated90 ? texH : texW;
+        int effectiveH = rotated90 ? texW : texH;
+
+        float scaleX = static_cast<float>(videoAreaW) / effectiveW;
+        float scaleY = static_cast<float>(winH) / effectiveH;
         float scale  = std::min(scaleX, scaleY);
 
-        int dstW = static_cast<int>(texW * scale);
-        int dstH = static_cast<int>(texH * scale);
+        int dstW = static_cast<int>(effectiveW * scale);
+        int dstH = static_cast<int>(effectiveH * scale);
         int dstX = (videoAreaW - dstW) / 2;
         int dstY = (winH - dstH) / 2;
 
-        SDL_Rect dst = {dstX, dstY, dstW, dstH};
-        SDL_RenderCopy(m_renderer, tex, nullptr, &dst);
+        // For SDL_RenderCopyEx with rotation, we need the dest rect to be
+        // the size of the *rotated* output
+        SDL_Rect dst;
+        if (rotated90) {
+            // Render into a rect sized for the rotated image
+            dst = {dstX + (dstW - dstH) / 2, dstY + (dstH - dstW) / 2, dstH, dstW};
+        } else {
+            dst = {dstX, dstY, dstW, dstH};
+        }
+        SDL_RenderCopyEx(m_renderer, tex, nullptr, &dst, renderAngle, nullptr, SDL_FLIP_NONE);
 
-        // Draw detection overlays (scaled to dst rect)
-        drawDetections(m_renderer, dst, texW, texH);
+        // The actual visible rect for overlay drawing
+        SDL_Rect visibleRect = {dstX, dstY, dstW, dstH};
+
+        // Draw detection overlays (scaled to visible rect, using rotated frame dims)
+        drawDetections(m_renderer, visibleRect, m_frameW, m_frameH);
 
         // FPS overlay
         auto stats = m_stream->getStats();
@@ -237,6 +275,9 @@ void DetectionWindow::render() {
             default:                        stateStr = "DISCONNECTED"; stateColor = WinColors::RED; break;
         }
         drawText(m_renderer, dstX + 8, dstY + 24, stateStr, stateColor, m_font12);
+
+        // Draw QR crop overlay if available
+        renderQRCrop(m_renderer, visibleRect);
     } else {
         // No video – draw placeholder
         SDL_SetRenderDrawColor(m_renderer, WinColors::CAMERA_BG.r, WinColors::CAMERA_BG.g,
@@ -474,12 +515,151 @@ void DetectionWindow::saveConfig() {
         j["detection"]["motion_threshold"]          = m_config.motion_threshold;
         j["detection"]["motion_accumulate_weight"]  = m_config.motion_accumulate_weight;
 
+        j["camera"]["rotation"] = m_config.rotation;
+
         std::ofstream out(m_config.config_path);
         out << j.dump(2) << std::endl;
         spdlog::info("Settings saved to {}", m_config.config_path);
     } catch (const std::exception& e) {
         spdlog::error("Failed to save config: {}", e.what());
     }
+}
+
+void DetectionWindow::rotateFrame(cv::Mat& frame) {
+    if (frame.empty()) return;
+    switch (m_config.rotation) {
+        case 90:
+            cv::rotate(frame, frame, cv::ROTATE_90_CLOCKWISE);
+            break;
+        case 180:
+            cv::rotate(frame, frame, cv::ROTATE_180);
+            break;
+        case 270:
+            cv::rotate(frame, frame, cv::ROTATE_90_COUNTERCLOCKWISE);
+            break;
+        default:
+            break;
+    }
+}
+
+void DetectionWindow::saveQRFrame(const cv::Mat& frame, const QRDetection& qr) {
+    if (frame.empty() || qr.points.size() < 4) return;
+
+    // Compute bounding rect of QR points with padding
+    int minX = frame.cols, minY = frame.rows, maxX = 0, maxY = 0;
+    for (auto& p : qr.points) {
+        minX = std::min(minX, p.x);
+        minY = std::min(minY, p.y);
+        maxX = std::max(maxX, p.x);
+        maxY = std::max(maxY, p.y);
+    }
+    int pad = 20;
+    minX = std::max(0, minX - pad);
+    minY = std::max(0, minY - pad);
+    maxX = std::min(frame.cols, maxX + pad);
+    maxY = std::min(frame.rows, maxY + pad);
+
+    if (maxX <= minX || maxY <= minY) return;
+
+    cv::Rect roi(minX, minY, maxX - minX, maxY - minY);
+    cv::Mat crop = frame(roi).clone();
+
+    // Draw bounding box on crop (offset points)
+    for (size_t i = 0; i < qr.points.size(); i++) {
+        size_t j = (i + 1) % qr.points.size();
+        cv::Point p1(qr.points[i].x - minX, qr.points[i].y - minY);
+        cv::Point p2(qr.points[j].x - minX, qr.points[j].y - minY);
+        cv::line(crop, p1, p2, cv::Scalar(255, 160, 100), 3);
+    }
+
+    // Draw data label on the crop
+    cv::putText(crop, qr.data, cv::Point(4, crop.rows - 8),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 160, 100), 1);
+
+    // Only save to disk if this is new QR data
+    if (m_seenQRData.find(qr.data) == m_seenQRData.end()) {
+        m_seenQRData.insert(qr.data);
+
+        // Save to workspace/detections/qr/
+        std::string saveDir = std::string(getenv("HOME") ? getenv("HOME") : ".") + "/roboticaWS/detections/qr";
+        // Create directory if needed
+        std::string mkdirCmd = "mkdir -p " + saveDir;
+        (void)system(mkdirCmd.c_str());
+
+        auto now = std::chrono::system_clock::now();
+        auto t = std::chrono::system_clock::to_time_t(now);
+        char filename[128];
+        std::strftime(filename, sizeof(filename), "qr_%Y%m%d_%H%M%S.png", std::localtime(&t));
+
+        std::string savePath = saveDir + "/" + filename;
+        cv::imwrite(savePath, frame);
+        spdlog::info("QR frame saved: {}", savePath);
+    }
+
+    // Convert crop to BGRA for SDL texture
+    cv::Mat bgra;
+    cv::cvtColor(crop, bgra, cv::COLOR_BGR2BGRA);
+
+    if (m_qrCropTex) { SDL_DestroyTexture(m_qrCropTex); m_qrCropTex = nullptr; }
+
+    m_qrCropTex = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ARGB8888,
+                                     SDL_TEXTUREACCESS_STREAMING,
+                                     bgra.cols, bgra.rows);
+    if (m_qrCropTex) {
+        void* pixels; int pitch;
+        if (SDL_LockTexture(m_qrCropTex, nullptr, &pixels, &pitch) == 0) {
+            for (int row = 0; row < bgra.rows; row++) {
+                memcpy(static_cast<uint8_t*>(pixels) + row * pitch,
+                       bgra.ptr(row), bgra.cols * 4);
+            }
+            SDL_UnlockTexture(m_qrCropTex);
+        }
+        m_qrCropW = bgra.cols;
+        m_qrCropH = bgra.rows;
+        m_qrCropData = qr.data;
+        m_qrCropTime = std::chrono::steady_clock::now();
+    }
+}
+
+void DetectionWindow::renderQRCrop(SDL_Renderer* r, SDL_Rect videoArea) {
+    if (!m_qrCropTex) return;
+
+    // Show the crop for 10 seconds after last detection
+    auto elapsed = std::chrono::steady_clock::now() - m_qrCropTime;
+    if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() > 10) {
+        SDL_DestroyTexture(m_qrCropTex);
+        m_qrCropTex = nullptr;
+        return;
+    }
+
+    // Render in bottom-left corner of video area, max 250px wide
+    int maxW = 250;
+    float scale = 1.0f;
+    if (m_qrCropW > maxW) scale = static_cast<float>(maxW) / m_qrCropW;
+    int drawW = static_cast<int>(m_qrCropW * scale);
+    int drawH = static_cast<int>(m_qrCropH * scale);
+
+    int margin = 10;
+    int dx = videoArea.x + margin;
+    int dy = videoArea.y + videoArea.h - drawH - margin - 20;
+
+    // Background
+    SDL_Rect bgRect = {dx - 4, dy - 4, drawW + 8, drawH + 28};
+    SDL_SetRenderDrawColor(r, 20, 20, 30, 220);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_RenderFillRect(r, &bgRect);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+
+    // Border
+    SDL_SetRenderDrawColor(r, 100, 160, 255, 255);
+    SDL_RenderDrawRect(r, &bgRect);
+
+    // Crop image
+    SDL_Rect cropDst = {dx, dy, drawW, drawH};
+    SDL_RenderCopy(r, m_qrCropTex, nullptr, &cropDst);
+
+    // Data label below crop
+    drawText(r, dx, dy + drawH + 2, "QR: " + m_qrCropData, WinColors::QR_COLOR, m_font12);
 }
 
 } // namespace detections
