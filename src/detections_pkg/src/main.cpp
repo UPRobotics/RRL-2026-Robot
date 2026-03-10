@@ -2,6 +2,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <nlohmann/json.hpp>
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <filesystem>
 #include <fstream>
 #include <cstring>
 
@@ -97,6 +98,12 @@ int main(int argc, char* argv[]) {
     spdlog::info("Config directory: {}", configDir);
 
     std::string configPath = configDir + "/detections_config.json";
+
+    // Resolve symlinks so we log/save to the real source path
+    try {
+        configPath = std::filesystem::canonical(configPath).string();
+    } catch (...) {}
+
     auto config = loadConfig(configPath);
     config.config_path = configPath;
 
