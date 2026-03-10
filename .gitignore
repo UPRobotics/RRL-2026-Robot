@@ -2,6 +2,9 @@
 build/
 install/
 log/
+
+# Vosk models (downloaded by install scripts)
+models/
 .colcon_install_layout
 .colcon_test_results
 COLCON_IGNORE
