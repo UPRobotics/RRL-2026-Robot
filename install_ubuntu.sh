@@ -25,13 +25,13 @@ WS_DIR="${SCRIPT_DIR}"
 # 1. System update
 ###############################################################################
 log "Updating system packages..."
-sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get update -qq && sudo apt-get upgrade -y -qq > /dev/null
 
 ###############################################################################
 # 2. Core build tools & colcon
 ###############################################################################
 log "Installing core build tools..."
-sudo apt-get install -y \
+sudo apt-get install -y -qq \
     build-essential \
     cmake \
     pkg-config \
@@ -42,13 +42,13 @@ sudo apt-get install -y \
     python3-pip \
     python3-colcon-common-extensions \
     python3-rosdep \
-    python3-vcstool
+    python3-vcstool > /dev/null
 
 ###############################################################################
 # 3. ROS2 Humble core packages (should already be installed)
 ###############################################################################
 log "Ensuring ROS2 Humble core packages are present..."
-sudo apt-get install -y \
+sudo apt-get install -y -qq \
     ros-humble-rclcpp \
     ros-humble-std-msgs \
     ros-humble-geometry-msgs \
@@ -57,14 +57,14 @@ sudo apt-get install -y \
     ros-humble-ament-cmake \
     ros-humble-ament-lint-auto \
     ros-humble-ament-lint-common \
-    ros-humble-joy
+    ros-humble-joy > /dev/null
 
 ###############################################################################
 # 4. camera_pkg dependencies
 #    SDL2, SDL2_ttf, FFmpeg, spdlog, nlohmann-json
 ###############################################################################
 log "Installing camera_pkg dependencies (SDL2, FFmpeg, spdlog, nlohmann-json)..."
-sudo apt-get install -y \
+sudo apt-get install -y -qq \
     libsdl2-dev \
     libsdl2-2.0-0 \
     libsdl2-ttf-dev \
@@ -78,16 +78,16 @@ sudo apt-get install -y \
     libavutil-dev \
     libavutil56 \
     libspdlog-dev \
-    nlohmann-json3-dev
+    nlohmann-json3-dev > /dev/null
 
 ###############################################################################
 # 5. mic_pkg dependencies
 #    ALSA, SDL2 (already above), Vosk speech recognition
 ###############################################################################
 log "Installing mic_pkg dependencies (ALSA)..."
-sudo apt-get install -y \
+sudo apt-get install -y -qq \
     libasound2-dev \
-    libasound2
+    libasound2 > /dev/null
 
 # --- Vosk C library (built from pre-compiled release) ---
 VOSK_VERSION="0.3.45"
@@ -165,19 +165,19 @@ fi
 # 7. thermal_pkg dependencies (OpenCV)
 ###############################################################################
 log "Installing thermal_pkg dependencies (OpenCV)..."
-sudo apt-get install -y libopencv-dev
+sudo apt-get install -y -qq libopencv-dev > /dev/null
 
 ###############################################################################
 # 8. robot_pkg dependencies (libserial for VESC communication)
 ###############################################################################
 log "Installing robot_pkg dependencies (libserial)..."
-sudo apt-get install -y libserial-dev
+sudo apt-get install -y -qq libserial-dev > /dev/null
 
 ###############################################################################
 # 9. Python dependencies (for VESCRPMDutyCycle.py and test scripts)
 ###############################################################################
 log "Installing Python dependencies..."
-pip3 install --user pyserial
+pip3 install --user -q pyserial
 
 ###############################################################################
 # 10. Serial port permissions
@@ -192,25 +192,29 @@ log "Initializing rosdep..."
 if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
     sudo rosdep init 2>/dev/null || warn "rosdep already initialized."
 fi
-rosdep update --rosdistro=humble
+rosdep update --rosdistro=humble > /dev/null
 
 ###############################################################################
 # 12. Install remaining dependencies via rosdep
 ###############################################################################
 log "Running rosdep install for workspace..."
 cd "${WS_DIR}"
+set +u
 source /opt/ros/humble/setup.bash
-rosdep install --from-paths src --ignore-src -r -y || warn "Some rosdep keys could not be resolved."
+set -u
+rosdep install --from-paths src --ignore-src -r -y > /dev/null 2>&1 || warn "Some rosdep keys could not be resolved."
 
 ###############################################################################
 # 13. Build the workspace
 ###############################################################################
 log "Building the workspace with colcon..."
 cd "${WS_DIR}"
+set +u
 source /opt/ros/humble/setup.bash
-colcon build --symlink-install 2>&1 | tee /tmp/colcon_build_output.log
+set -u
+colcon build --symlink-install > /tmp/colcon_build_output.log 2>&1
 
-BUILD_RC=${PIPESTATUS[0]}
+BUILD_RC=$?
 if [ "${BUILD_RC}" -eq 0 ]; then
     log "Build completed successfully!"
 else
