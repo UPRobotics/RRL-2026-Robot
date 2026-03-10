@@ -1,0 +1,9 @@
+{
+  "detection": {
+    "motion_accumulate_weight": 0.05,
+    "motion_min_area": 1000,
+    "motion_skip_frames": 1,
+    "motion_threshold": 35.0,
+    "qr_detect_interval": 1
+  }
+}
