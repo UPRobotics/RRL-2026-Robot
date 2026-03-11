@@ -10,7 +10,7 @@ using namespace std::chrono_literals;
 
 class BodyNode : public rclcpp::Node{
     public:
-
+        //TODO: For now placeholder values
         int leftMotorId = 0;
         int rightMotorId = 1;
         int leftFlipperId = 2;
@@ -65,16 +65,16 @@ class BodyNode : public rclcpp::Node{
                 callback_group_right_flipper_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 
                 timer_left_ = this->create_wall_timer(
-                    50ms, bind(&BodyNode::driveLeft, this), callback_group_left_);
+                    20ms, bind(&BodyNode::driveLeft, this), callback_group_left_);
                     
                 timer_right_ = this->create_wall_timer(
-                    50ms, bind(&BodyNode::driveRight, this), callback_group_right_);
+                    20ms, bind(&BodyNode::driveRight, this), callback_group_right_);
 
                 timer_left_flipper_ = this->create_wall_timer(
-                    50ms, bind(&BodyNode::driveLeftFlipper, this), callback_group_left_flipper_);
+                    20ms, bind(&BodyNode::driveLeftFlipper, this), callback_group_left_flipper_);
                     
                 timer_right_flipper_ = this->create_wall_timer(
-                    50ms, bind(&BodyNode::driveRightFlipper, this), callback_group_right_flipper_);
+                    20ms, bind(&BodyNode::driveRightFlipper, this), callback_group_right_flipper_);
                 
                 y_left_Axis_subscriber = create_subscription<std_msgs::msg::Float32>(
                 "/arm/y_left_axis", 10,
@@ -93,7 +93,7 @@ class BodyNode : public rclcpp::Node{
             "/body_left/telemetry", 10);
             right_full_telemetry_pub = create_publisher<std_msgs::msg::Float32MultiArray>(
             "/body_right/telemetry", 10);
-            // flipper telemetry topics
+
             left_flipper_full_telemetry_pub = create_publisher<std_msgs::msg::Float32MultiArray>(
             "/body_left_flipper/telemetry", 10);
             right_flipper_full_telemetry_pub = create_publisher<std_msgs::msg::Float32MultiArray>(

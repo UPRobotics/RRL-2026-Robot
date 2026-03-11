@@ -30,14 +30,14 @@ set(COMMON_DEPS
 )
 
 # ---------- TELEMETRY NODE ----------
-add_executable(telemetryPublisher_node
-  src/TelemetryPublisher.cpp
+add_executable(telemetry_node
+  src/Telemetry.cpp
 )
 
-target_include_directories(telemetryPublisher_node PUBLIC ${COMMON_INCLUDES})
-ament_target_dependencies(telemetryPublisher_node ${COMMON_DEPS})
+target_include_directories(telemetry_node PUBLIC ${COMMON_INCLUDES})
+ament_target_dependencies(telemetry_node ${COMMON_DEPS})
 install(TARGETS
-  telemetryPublisher_node
+  telemetry_node
   DESTINATION lib/${PROJECT_NAME}
 )
 install(DIRECTORY include/telemetry_pkg/

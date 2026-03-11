@@ -14,7 +14,7 @@ using json = nlohmann::json;
 
 class Telemetry_publisher : public rclcpp::Node{
     public:
-    Telemetry_publisher() : Node("telemetryPublisher_node"){
+    Telemetry_publisher() : Node("telemetry_node"){
 
         timer_ = this->create_wall_timer(
             std::chrono::milliseconds(20), std::bind(&Telemetry_publisher::callback, this));
@@ -28,10 +28,30 @@ class Telemetry_publisher : public rclcpp::Node{
             "/telemetryJSON/arm_max_rpm", 10
         );
 
-        // Subscriber for arm telemetry
-        armTelemetrySub = create_subscription<std_msgs::msg::Float32MultiArray>(
-            "/arm/telemetry", 10,
-            std::bind(&Telemetry_publisher::armTelemetryCallback, this, std::placeholders::_1)
+        // Subscribers for arm telemetry
+        armHipTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+            "/arm_hip/telemetry", 10,
+            std::bind(&Telemetry_publisher::armHipTelemetryCallback, this, std::placeholders::_1)
+        );
+        armShoulderTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+            "/arm_shoulder/telemetry", 10,
+            std::bind(&Telemetry_publisher::armShoulderTelemetryCallback, this, std::placeholders::_1)
+        );
+        armElbowTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+            "/arm_elbow/telemetry", 10,
+            std::bind(&Telemetry_publisher::armElbowTelemetryCallback, this, std::placeholders::_1)
+        );
+        armRollTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+            "/arm_roll/telemetry", 10,
+            std::bind(&Telemetry_publisher::armRollTelemetryCallback, this, std::placeholders::_1)
+        );
+        armPitchTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+            "/arm_pitch/telemetry", 10,
+            std::bind(&Telemetry_publisher::armPitchTelemetryCallback, this, std::placeholders::_1)
+        );
+        armClawTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+            "/arm_claw/telemetry", 10,
+            std::bind(&Telemetry_publisher::armClawTelemetryCallback, this, std::placeholders::_1)
         );
 
         // Subscribers for body telemetry
@@ -62,17 +82,71 @@ class Telemetry_publisher : public rclcpp::Node{
         armMaxRpm->publish(msg);
     }
 
-    void armTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        // simple log of received values
-        RCLCPP_INFO(this->get_logger(), "Received arm telemetry with %zu entries",
-                    msg->data.size());
+    // callbacks for arm telemetry topics
+    void armHipTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(), "Received arm_hip telemetry (%zu entries)", msg->data.size());
         if(!msg->data.empty()){
             std::ostringstream oss;
             for(size_t i=0;i<msg->data.size();++i){
                 oss << msg->data[i];
                 if(i+1<msg->data.size()) oss << ", ";
             }
-            RCLCPP_INFO(this->get_logger(), "Values: %s", oss.str().c_str());
+            RCLCPP_INFO(this->get_logger(), "arm_hip values: %s", oss.str().c_str());
+        }
+    }
+    void armShoulderTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(), "Received arm_shoulder telemetry (%zu entries)", msg->data.size());
+        if(!msg->data.empty()){
+            std::ostringstream oss;
+            for(size_t i=0;i<msg->data.size();++i){
+                oss << msg->data[i];
+                if(i+1<msg->data.size()) oss << ", ";
+            }
+            RCLCPP_INFO(this->get_logger(), "arm_shoulder values: %s", oss.str().c_str());
+        }
+    }
+    void armElbowTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(), "Received arm_elbow telemetry (%zu entries)", msg->data.size());
+        if(!msg->data.empty()){
+            std::ostringstream oss;
+            for(size_t i=0;i<msg->data.size();++i){
+                oss << msg->data[i];
+                if(i+1<msg->data.size()) oss << ", ";
+            }
+            RCLCPP_INFO(this->get_logger(), "arm_elbow values: %s", oss.str().c_str());
+        }
+    }
+    void armRollTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(), "Received arm_roll telemetry (%zu entries)", msg->data.size());
+        if(!msg->data.empty()){
+            std::ostringstream oss;
+            for(size_t i=0;i<msg->data.size();++i){
+                oss << msg->data[i];
+                if(i+1<msg->data.size()) oss << ", ";
+            }
+            RCLCPP_INFO(this->get_logger(), "arm_roll values: %s", oss.str().c_str());
+        }
+    }
+    void armPitchTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(), "Received arm_pitch telemetry (%zu entries)", msg->data.size());
+        if(!msg->data.empty()){
+            std::ostringstream oss;
+            for(size_t i=0;i<msg->data.size();++i){
+                oss << msg->data[i];
+                if(i+1<msg->data.size()) oss << ", ";
+            }
+            RCLCPP_INFO(this->get_logger(), "arm_pitch values: %s", oss.str().c_str());
+        }
+    }
+    void armClawTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(), "Received arm_claw telemetry (%zu entries)", msg->data.size());
+        if(!msg->data.empty()){
+            std::ostringstream oss;
+            for(size_t i=0;i<msg->data.size();++i){
+                oss << msg->data[i];
+                if(i+1<msg->data.size()) oss << ", ";
+            }
+            RCLCPP_INFO(this->get_logger(), "arm_claw values: %s", oss.str().c_str());
         }
     }
 
@@ -123,7 +197,13 @@ class Telemetry_publisher : public rclcpp::Node{
     }
 
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr armMaxRpm;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armTelemetrySub;
+    // arm telemetry subscriptions
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armHipTelemSub;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armShoulderTelemSub;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armElbowTelemSub;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armRollTelemSub;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armPitchTelemSub;
+    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armClawTelemSub;
     // body telemetry subscriptions
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr bodyLeftTelemSub;
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr bodyRightTelemSub;
