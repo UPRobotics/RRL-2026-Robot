@@ -34,6 +34,7 @@ private:
     void render();
     void drawDetections(SDL_Renderer* r, SDL_Rect videoRect,
                         int srcW, int srcH);
+    void renderToggleBar(SDL_Renderer* r, SDL_Rect area);
     void renderSettingsPanel(SDL_Renderer* r, SDL_Rect area);
     void handleMouseClick(int mx, int my);
     void saveConfig();
@@ -59,6 +60,11 @@ private:
     SettingRow m_btnWeight{};
     SettingRow m_btnSkipFrames{};
     SettingRow m_btnQRInterval{};
+
+    // Toggle bar button rects
+    SDL_Rect m_toggleAll{};
+    SDL_Rect m_toggleQR{};
+    SDL_Rect m_toggleMotion{};
 
     // SDL
     SDL_Window*   m_window   = nullptr;

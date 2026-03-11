@@ -67,6 +67,10 @@ struct DetectionConfig {
     int window_height = 720;
     int mag_panel_width = 300;
 
+    // Detection toggles
+    bool enable_qr = true;
+    bool enable_motion = true;
+
     // Camera rotation (0, 90, 180, 270)
     int rotation = 0;
 

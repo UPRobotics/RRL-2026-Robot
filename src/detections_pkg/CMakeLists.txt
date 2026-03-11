@@ -36,7 +36,7 @@ if(NOT nlohmann_json_FOUND)
   pkg_check_modules(NLOHMANN_JSON REQUIRED nlohmann_json)
 endif()
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs dnn)
 pkg_check_modules(ZBAR REQUIRED zbar)
 
 # -------------------------------------------------------

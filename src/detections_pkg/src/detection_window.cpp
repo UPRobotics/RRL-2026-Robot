@@ -136,15 +136,23 @@ bool DetectionWindow::spinOnce() {
         m_frameH = bgr.rows;
         m_lastFrame = bgr.clone();
 
-        // Run detections
-        m_qrResults = m_qrDetector.detect(
-            bgr, m_config.qr_detect_interval);
-        m_motionResults = m_motionDetector.detect(
-            bgr,
-            m_config.motion_skip_frames,
-            m_config.motion_min_area,
-            m_config.motion_threshold,
-            m_config.motion_accumulate_weight);
+        // Run detections (only if enabled)
+        if (m_config.enable_qr) {
+            m_qrResults = m_qrDetector.detect(
+                bgr, m_config.qr_detect_interval);
+        } else {
+            m_qrResults.clear();
+        }
+        if (m_config.enable_motion) {
+            m_motionResults = m_motionDetector.detect(
+                bgr,
+                m_config.motion_skip_frames,
+                m_config.motion_min_area,
+                m_config.motion_threshold,
+                m_config.motion_accumulate_weight);
+        } else {
+            m_motionResults.clear();
+        }
 
         // If QR detected, save frame and create crop texture
         if (!m_qrResults.empty()) {
@@ -216,9 +224,16 @@ void DetectionWindow::render() {
     int magH = winH / 2;
     int settingsH = winH - magH;
 
-    // ---- Video area ----
+    // ---- Toggle bar (top of video area) ----
+    static constexpr int TOGGLE_BAR_H = 32;
+    SDL_Rect toggleBarRect = {0, 0, videoAreaW, TOGGLE_BAR_H};
+    renderToggleBar(m_renderer, toggleBarRect);
+
+    // ---- Video area (below toggle bar) ----
     SDL_Texture* tex = m_stream->getTexture();
-    SDL_Rect videoRect = {0, 0, videoAreaW, winH};
+    int videoY = TOGGLE_BAR_H;
+    int videoH = winH - TOGGLE_BAR_H;
+    SDL_Rect videoRect = {0, videoY, videoAreaW, videoH};
 
     double renderAngle = static_cast<double>(m_config.rotation);
     bool rotated90 = (m_config.rotation == 90 || m_config.rotation == 270);
@@ -233,13 +248,13 @@ void DetectionWindow::render() {
         int effectiveH = rotated90 ? texW : texH;
 
         float scaleX = static_cast<float>(videoAreaW) / effectiveW;
-        float scaleY = static_cast<float>(winH) / effectiveH;
+        float scaleY = static_cast<float>(videoH) / effectiveH;
         float scale  = std::min(scaleX, scaleY);
 
         int dstW = static_cast<int>(effectiveW * scale);
         int dstH = static_cast<int>(effectiveH * scale);
         int dstX = (videoAreaW - dstW) / 2;
-        int dstY = (winH - dstH) / 2;
+        int dstY = videoY + (videoH - dstH) / 2;
 
         // For SDL_RenderCopyEx with rotation, we need the dest rect to be
         // the size of the *rotated* output
@@ -283,7 +298,7 @@ void DetectionWindow::render() {
         SDL_SetRenderDrawColor(m_renderer, WinColors::CAMERA_BG.r, WinColors::CAMERA_BG.g,
                                WinColors::CAMERA_BG.b, WinColors::CAMERA_BG.a);
         SDL_RenderFillRect(m_renderer, &videoRect);
-        drawText(m_renderer, videoAreaW / 2 - 60, winH / 2 - 8,
+        drawText(m_renderer, videoAreaW / 2 - 60, videoY + videoH / 2 - 8,
                  "Connecting...", WinColors::YELLOW, m_font16);
     }
 
@@ -296,6 +311,65 @@ void DetectionWindow::render() {
     renderSettingsPanel(m_renderer, settingsRect);
 
     SDL_RenderPresent(m_renderer);
+}
+
+void DetectionWindow::renderToggleBar(SDL_Renderer* r, SDL_Rect area) {
+    // Toolbar background (matches camera_pkg TOOLBAR_BG)
+    SDL_SetRenderDrawColor(r, 40, 40, 45, 255);
+    SDL_RenderFillRect(r, &area);
+
+    // Bottom border
+    SDL_SetRenderDrawColor(r, 60, 60, 65, 255);
+    SDL_RenderDrawLine(r, area.x, area.y + area.h - 1, area.x + area.w, area.y + area.h - 1);
+
+    int btnW = 130;
+    int btnH = 28;
+    int spacing = 12;
+    int x = area.x + 12;
+    int y = area.y + (area.h - btnH) / 2;
+
+    bool allOn = m_config.enable_qr && m_config.enable_motion;
+
+    // Colors matching camera_pkg palette
+    static const SDL_Color activeColor   = {70, 130, 180, 255};  // BUTTON_NORMAL (steel blue)
+    static const SDL_Color inactiveColor = {80, 80, 85, 255};    // BUTTON_DISABLED
+    static const SDL_Color textColor     = {255, 255, 255, 255}; // BUTTON_TEXT (white)
+    static const SDL_Color disTextColor  = {150, 150, 150, 255}; // DISABLED_TEXT
+    static const SDL_Color borderColor   = {50, 50, 55, 255};    // BUTTON_BORDER
+
+    struct ToggleDef {
+        const char* label;
+        bool active;
+        SDL_Rect* rect;
+    };
+    ToggleDef toggles[] = {
+        { allOn ? "ALL ON" : "ALL OFF", allOn, &m_toggleAll },
+        { "QR Code",  m_config.enable_qr,     &m_toggleQR },
+        { "Motion",   m_config.enable_motion,  &m_toggleMotion },
+    };
+
+    for (auto& tg : toggles) {
+        *tg.rect = {x, y, btnW, btnH};
+
+        // Button fill
+        auto& bg = tg.active ? activeColor : inactiveColor;
+        SDL_SetRenderDrawColor(r, bg.r, bg.g, bg.b, 255);
+        SDL_RenderFillRect(r, tg.rect);
+
+        // Border
+        SDL_SetRenderDrawColor(r, borderColor.r, borderColor.g, borderColor.b, 255);
+        SDL_RenderDrawRect(r, tg.rect);
+
+        // Center label text
+        auto& tc = tg.active ? textColor : disTextColor;
+        int tw = 0, th = 0;
+        if (m_font14) TTF_SizeText(m_font14, tg.label, &tw, &th);
+        int tx = x + (btnW - tw) / 2;
+        int ty = y + (btnH - th) / 2;
+        drawText(r, tx, ty, tg.label, tc, m_font14);
+
+        x += btnW + spacing;
+    }
 }
 
 void DetectionWindow::drawDetections(SDL_Renderer* r, SDL_Rect dst,
@@ -372,6 +446,7 @@ void DetectionWindow::drawDetections(SDL_Renderer* r, SDL_Rect dst,
 
         drawText(r, minX, labelY, label, WinColors::QR_COLOR, m_font14);
     }
+
 }
 
 // ----------------------------------------------------------------
@@ -449,13 +524,30 @@ void DetectionWindow::renderSettingsPanel(SDL_Renderer* r, SDL_Rect area) {
 
     std::snprintf(buf, sizeof(buf), "%d", m_config.qr_detect_interval);
     renderRow("QR Interval", buf, m_btnQRInterval);
+
 }
 
 void DetectionWindow::handleMouseClick(int mx, int my) {
     bool changed = false;
 
+    // Toggle bar clicks
+    if (inRect(mx, my, m_toggleAll)) {
+        bool allOn = m_config.enable_qr && m_config.enable_motion;
+        m_config.enable_qr = !allOn;
+        m_config.enable_motion = !allOn;
+        if (!m_config.enable_motion) m_motionDetector.reset();
+        changed = true;
+    } else if (inRect(mx, my, m_toggleQR)) {
+        m_config.enable_qr = !m_config.enable_qr;
+        changed = true;
+    } else if (inRect(mx, my, m_toggleMotion)) {
+        m_config.enable_motion = !m_config.enable_motion;
+        if (!m_config.enable_motion) m_motionDetector.reset();
+        changed = true;
+    }
+
     // Min Area: step 500
-    if (inRect(mx, my, m_btnMinArea.minus)) {
+    else if (inRect(mx, my, m_btnMinArea.minus)) {
         m_config.motion_min_area = std::max(0, m_config.motion_min_area - 500);
         changed = true;
     } else if (inRect(mx, my, m_btnMinArea.plus)) {
@@ -494,7 +586,6 @@ void DetectionWindow::handleMouseClick(int mx, int my) {
         m_config.qr_detect_interval += 1;
         changed = true;
     }
-
     if (changed) saveConfig();
 }
 
