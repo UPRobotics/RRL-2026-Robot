@@ -1,3 +1,5 @@
+#Custom ignores
+detections/
 # ROS 2 / Colcon
 build/
 install/
