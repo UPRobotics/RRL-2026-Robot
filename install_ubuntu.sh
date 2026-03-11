@@ -50,11 +50,14 @@ sudo apt-get install -y -qq \
 log "Ensuring ROS2 Humble core packages are present..."
 sudo apt-get install -y -qq \
     ros-humble-rclcpp \
+    ros-humble-rclpy \
     ros-humble-std-msgs \
     ros-humble-geometry-msgs \
     ros-humble-sensor-msgs \
     ros-humble-ros2launch \
+    ros-humble-launch-ros \
     ros-humble-ament-cmake \
+    ros-humble-ament-index-cpp \
     ros-humble-ament-lint-auto \
     ros-humble-ament-lint-common \
     ros-humble-joy > /dev/null
@@ -162,31 +165,85 @@ else
 fi
 
 ###############################################################################
-# 7. thermal_pkg dependencies (OpenCV)
+# 7. detections_pkg dependencies (OpenCV, ZBar, ONNX Runtime)
+#    Desktop-only package for QR/motion/hazmat detection
 ###############################################################################
-log "Installing thermal_pkg dependencies (OpenCV)..."
-sudo apt-get install -y -qq libopencv-dev > /dev/null
+log "Installing detections_pkg dependencies (OpenCV, ZBar)..."
+sudo apt-get install -y -qq \
+    libopencv-dev \
+    libzbar-dev > /dev/null
+
+# --- ONNX Runtime (for hazmat detection inference) ---
+ONNXRT_VERSION="1.17.1"
+ONNXRT_INSTALLED=false
+
+if [ -f /usr/local/lib/libonnxruntime.so ] && [ -f /usr/local/include/onnxruntime_cxx_api.h ]; then
+    log "ONNX Runtime already installed, skipping."
+    ONNXRT_INSTALLED=true
+fi
+
+if [ "${ONNXRT_INSTALLED}" = false ]; then
+    log "Installing ONNX Runtime v${ONNXRT_VERSION} for x86_64..."
+    ONNXRT_ARCHIVE="onnxruntime-linux-x64-${ONNXRT_VERSION}.tgz"
+    ONNXRT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRT_VERSION}/${ONNXRT_ARCHIVE}"
+
+    TMPDIR="$(mktemp -d)"
+    cd "${TMPDIR}"
+    wget -q "${ONNXRT_URL}" -O "${ONNXRT_ARCHIVE}" || {
+        err "Failed to download ONNX Runtime. Please download manually from:"
+        err "  ${ONNXRT_URL}"
+        err "Then copy libs to /usr/local/lib/ and headers to /usr/local/include/"
+        cd "${WS_DIR}"
+        rm -rf "${TMPDIR}"
+        warn "Continuing without ONNX Runtime..."
+    }
+
+    if [ -f "${ONNXRT_ARCHIVE}" ]; then
+        tar xzf "${ONNXRT_ARCHIVE}"
+        ONNXRT_DIR="onnxruntime-linux-x64-${ONNXRT_VERSION}"
+        sudo cp "${ONNXRT_DIR}"/lib/libonnxruntime* /usr/local/lib/
+        sudo cp "${ONNXRT_DIR}"/include/* /usr/local/include/
+        sudo ldconfig
+        log "ONNX Runtime installed successfully."
+    fi
+
+    cd "${WS_DIR}"
+    rm -rf "${TMPDIR}"
+fi
 
 ###############################################################################
-# 8. robot_pkg dependencies (libserial for VESC communication)
+# 8. thermal_pkg dependencies (OpenCV — already installed above)
+###############################################################################
+log "thermal_pkg dependencies (OpenCV) already satisfied."
+
+###############################################################################
+# 9. robot_pkg dependencies (libserial for VESC communication)
 ###############################################################################
 log "Installing robot_pkg dependencies (libserial)..."
 sudo apt-get install -y -qq libserial-dev > /dev/null
 
 ###############################################################################
-# 9. Python dependencies (for VESCRPMDutyCycle.py and test scripts)
+# 10. magnetometer_pkg dependencies (Python: matplotlib, tkinter, serial)
+###############################################################################
+log "Installing magnetometer_pkg dependencies (matplotlib, tkinter)..."
+sudo apt-get install -y -qq \
+    python3-matplotlib \
+    python3-tk > /dev/null
+
+###############################################################################
+# 11. Python dependencies (for VESCRPMDutyCycle.py, magnetometer, test scripts)
 ###############################################################################
 log "Installing Python dependencies..."
 pip3 install --user -q pyserial
 
 ###############################################################################
-# 10. Serial port permissions
+# 12. Serial port permissions
 ###############################################################################
 log "Adding user '${USER}' to 'dialout' group for serial port access..."
 sudo usermod -aG dialout "${USER}" || warn "Could not add user to dialout group."
 
 ###############################################################################
-# 11. Initialize / update rosdep
+# 13. Initialize / update rosdep
 ###############################################################################
 log "Initializing rosdep..."
 if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
@@ -195,7 +252,7 @@ fi
 rosdep update --rosdistro=humble > /dev/null
 
 ###############################################################################
-# 12. Install remaining dependencies via rosdep
+# 14. Install remaining dependencies via rosdep
 ###############################################################################
 log "Running rosdep install for workspace..."
 cd "${WS_DIR}"
@@ -205,7 +262,7 @@ set -u
 rosdep install --from-paths src --ignore-src -r -y > /dev/null 2>&1 || warn "Some rosdep keys could not be resolved."
 
 ###############################################################################
-# 13. Build the workspace
+# 15. Build the workspace
 ###############################################################################
 log "Building the workspace with colcon..."
 cd "${WS_DIR}"
@@ -222,7 +279,7 @@ else
 fi
 
 ###############################################################################
-# 14. Summary
+# 16. Summary
 ###############################################################################
 echo ""
 log "============================================"
@@ -234,6 +291,9 @@ echo "    source ${WS_DIR}/install/setup.bash"
 echo ""
 echo "  Available nodes:"
 echo "    ros2 run camera_pkg camera_pkg_node"
+echo "    ros2 run detections_pkg detections_pkg_node"
+echo "    ros2 run magnetometer_pkg magnetometer_sender"
+echo "    ros2 run magnetometer_pkg magnetometer_receiver"
 echo "    ros2 run mic_pkg mic_transmitter_node"
 echo "    ros2 run mic_pkg mic_receiver_node"
 echo "    ros2 run robot_pkg arm_node"

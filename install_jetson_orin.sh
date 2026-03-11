@@ -50,36 +50,25 @@ sudo apt-get install -y -qq \
 log "Ensuring ROS2 Humble core packages are present..."
 sudo apt-get install -y -qq \
     ros-humble-rclcpp \
+    ros-humble-rclpy \
     ros-humble-std-msgs \
     ros-humble-geometry-msgs \
     ros-humble-sensor-msgs \
     ros-humble-ros2launch \
+    ros-humble-launch-ros \
     ros-humble-ament-cmake \
     ros-humble-ament-lint-auto \
     ros-humble-ament-lint-common \
     ros-humble-joy > /dev/null
 
 ###############################################################################
-# 4. camera_pkg dependencies
-#    SDL2, SDL2_ttf, FFmpeg, spdlog, nlohmann-json
+# 4. mic_pkg dependencies
+#    ALSA, SDL2, SDL2_ttf, Vosk speech recognition
 ###############################################################################
-log "Installing camera_pkg dependencies (SDL2, FFmpeg, spdlog, nlohmann-json)..."
+log "Installing mic_pkg dependencies (SDL2, SDL2_ttf, ALSA)..."
 sudo apt-get install -y -qq \
     libsdl2-dev \
     libsdl2-ttf-dev \
-    libavcodec-dev \
-    libavformat-dev \
-    libswscale-dev \
-    libavutil-dev \
-    libspdlog-dev \
-    nlohmann-json3-dev > /dev/null
-
-###############################################################################
-# 5. mic_pkg dependencies
-#    ALSA, SDL2 (already above), Vosk speech recognition
-###############################################################################
-log "Installing mic_pkg dependencies (ALSA)..."
-sudo apt-get install -y -qq \
     libasound2-dev \
     libasound2 > /dev/null
 
@@ -122,7 +111,7 @@ if [ "${VOSK_INSTALLED}" = false ]; then
 fi
 
 ###############################################################################
-# 6. Vosk speech models
+# 5. Vosk speech models
 ###############################################################################
 MODELS_DIR="${WS_DIR}/models"
 mkdir -p "${MODELS_DIR}"
@@ -156,7 +145,7 @@ else
 fi
 
 ###############################################################################
-# 7. thermal_pkg dependencies (OpenCV)
+# 6. thermal_pkg dependencies (OpenCV)
 #    On Jetson, OpenCV is pre-installed via JetPack with CUDA support.
 #    Install the dev package just in case.
 ###############################################################################
@@ -167,13 +156,21 @@ sudo apt-get install -y -qq libopencv-dev > /dev/null || {
 }
 
 ###############################################################################
-# 8. robot_pkg dependencies (libserial for VESC communication)
+# 7. robot_pkg dependencies (libserial for VESC communication)
 ###############################################################################
 log "Installing robot_pkg dependencies (libserial)..."
 sudo apt-get install -y -qq libserial-dev > /dev/null
 
 ###############################################################################
-# 9. Python dependencies (for VESCRPMDutyCycle.py and test scripts)
+# 8. magnetometer_pkg dependencies (Python: matplotlib, tkinter, serial)
+###############################################################################
+log "Installing magnetometer_pkg dependencies (matplotlib, tkinter)..."
+sudo apt-get install -y -qq \
+    python3-matplotlib \
+    python3-tk > /dev/null
+
+###############################################################################
+# 9. Python dependencies (for VESCRPMDutyCycle.py, magnetometer, test scripts)
 ###############################################################################
 log "Installing Python dependencies..."
 pip3 install --user -q pyserial
@@ -204,14 +201,15 @@ set -u
 rosdep install --from-paths src --ignore-src -r -y > /dev/null 2>&1 || warn "Some rosdep keys could not be resolved."
 
 ###############################################################################
-# 13. Build the workspace
+# 13. Build the workspace (excluding desktop-only packages)
 ###############################################################################
 log "Building the workspace with colcon..."
 cd "${WS_DIR}"
 set +u
 source /opt/ros/humble/setup.bash
 set -u
-colcon build --symlink-install > /tmp/colcon_build_output.log 2>&1
+colcon build --symlink-install \
+    --packages-ignore camera_pkg detections_pkg > /tmp/colcon_build_output.log 2>&1
 
 BUILD_RC=$?
 if [ "${BUILD_RC}" -eq 0 ]; then
@@ -232,7 +230,8 @@ echo "  To use the workspace, run:"
 echo "    source ${WS_DIR}/install/setup.bash"
 echo ""
 echo "  Available nodes:"
-echo "    ros2 run camera_pkg camera_pkg_node"
+echo "    ros2 run magnetometer_pkg magnetometer_sender"
+echo "    ros2 run magnetometer_pkg magnetometer_receiver"
 echo "    ros2 run mic_pkg mic_transmitter_node"
 echo "    ros2 run mic_pkg mic_receiver_node"
 echo "    ros2 run robot_pkg arm_node"
@@ -240,6 +239,8 @@ echo "    ros2 run robot_pkg body_node"
 echo "    ros2 run robot_pkg joystick_node"
 echo "    ros2 run thermal_pkg thermal_camera_node"
 echo "    ros2 run thermal_pkg thermal_display_node"
+echo ""
+echo "  NOTE: camera_pkg and detections_pkg are desktop-only and not built here."
 echo ""
 echo "  NOTE: Log out and back in for 'dialout' group changes to take effect."
 echo ""
