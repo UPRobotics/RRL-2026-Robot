@@ -1,0 +1,28 @@
+{
+  "camera": {
+    "rotation": 0,
+    "rtsp_url": "rtsp://admin:admin@192.168.0.206:554/profile0",
+    "rtsp_url_lowres": "rtsp://admin:admin@192.168.0.206:554/profile1"
+  },
+  "detection": {
+    "motion_accumulate_weight": 0.15,
+    "motion_min_area": 5000,
+    "motion_skip_frames": 1,
+    "motion_threshold": 50.0,
+    "qr_detect_interval": 1
+  },
+  "display": {
+    "magnetometer_panel_width": 300,
+    "window_height": 720,
+    "window_width": 1280
+  },
+  "hazmat": {
+    "confidence_threshold": 0.2999999523162842,
+    "detect_interval": 1,
+    "enabled": true,
+    "nms_threshold": 0.7500000596046448,
+    "resnet_model": "models/hazmat_resnet18.onnx",
+    "use_cuda": true,
+    "yolo_model": "models/hazmat_best.onnx"
+  }
+}
