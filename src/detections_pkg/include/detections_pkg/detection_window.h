@@ -4,6 +4,7 @@
 #include "detections_pkg/detection_stream.h"
 #include "detections_pkg/qr_detector.h"
 #include "detections_pkg/motion_detector.h"
+#include "detections_pkg/hazmat_detector.h"
 #include "detections_pkg/magnetometer_panel.h"
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
@@ -65,6 +66,7 @@ private:
     SDL_Rect m_toggleAll{};
     SDL_Rect m_toggleQR{};
     SDL_Rect m_toggleMotion{};
+    SDL_Rect m_toggleHazmat{};
 
     // SDL
     SDL_Window*   m_window   = nullptr;
@@ -75,10 +77,12 @@ private:
     std::unique_ptr<MagnetometerPanel> m_magPanel;
     QRDetector      m_qrDetector;
     MotionDetector  m_motionDetector;
+    HazmatDetector  m_hazmatDetector;
 
     // Detection results (updated each frame from the latest BGR grab)
     std::vector<QRDetection> m_qrResults;
     std::vector<MotionBox>   m_motionResults;
+    std::vector<HazmatDetection> m_hazmatResults;
 
     // Frame dimensions from the stream
     int m_frameW = 0;

@@ -49,6 +49,16 @@ static detections::DetectionConfig loadConfig(const std::string& path) {
             cfg.motion_threshold         = det.value("motion_threshold", 30.0);
             cfg.motion_accumulate_weight = det.value("motion_accumulate_weight", 0.05);
         }
+        if (j.contains("hazmat")) {
+            auto& hz = j["hazmat"];
+            cfg.enable_hazmat          = hz.value("enabled", true);
+            cfg.hazmat_detect_interval = hz.value("detect_interval", 2);
+            cfg.hazmat_conf_threshold  = hz.value("confidence_threshold", 0.5f);
+            cfg.hazmat_nms_threshold   = hz.value("nms_threshold", 0.45f);
+            cfg.hazmat_use_cuda        = hz.value("use_cuda", true);
+            cfg.hazmat_yolo_model      = hz.value("yolo_model", "");
+            cfg.hazmat_resnet_model    = hz.value("resnet_model", "");
+        }
         if (j.contains("display")) {
             auto& disp = j["display"];
             cfg.window_width    = disp.value("window_width", 1280);
@@ -106,6 +116,16 @@ int main(int argc, char* argv[]) {
 
     auto config = loadConfig(configPath);
     config.config_path = configPath;
+
+    // Resolve hazmat model paths relative to config directory
+    if (!config.hazmat_yolo_model.empty() &&
+        config.hazmat_yolo_model[0] != '/') {
+        config.hazmat_yolo_model = configDir + "/" + config.hazmat_yolo_model;
+    }
+    if (!config.hazmat_resnet_model.empty() &&
+        config.hazmat_resnet_model[0] != '/') {
+        config.hazmat_resnet_model = configDir + "/" + config.hazmat_resnet_model;
+    }
 
     spdlog::info("RTSP URL: {}", config.rtsp_url);
     spdlog::info("Window: {}x{}, panel width: {}",

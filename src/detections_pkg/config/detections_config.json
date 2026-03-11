@@ -11,6 +11,15 @@
     "motion_threshold": 50.0,
     "qr_detect_interval": 1
   },
+  "hazmat": {
+    "enabled": true,
+    "yolo_model": "models/hazmat_best.onnx",
+    "resnet_model": "models/hazmat_resnet18.onnx",
+    "detect_interval": 2,
+    "confidence_threshold": 0.5,
+    "nms_threshold": 0.45,
+    "use_cuda": true
+  },
   "display": {
     "magnetometer_panel_width": 300,
     "window_height": 720,

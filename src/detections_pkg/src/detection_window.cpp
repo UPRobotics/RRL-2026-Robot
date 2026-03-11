@@ -21,6 +21,7 @@ namespace WinColors {
     const SDL_Color YELLOW      = {241, 196, 15, 255};
     const SDL_Color QR_COLOR    = {100, 160, 255, 255};  // Bright blue for QR
     const SDL_Color MOTION_COLOR= {0, 255, 0, 255};      // Green for motion
+    const SDL_Color HAZMAT_COLOR= {255, 100, 50, 255};   // Orange-red for hazmat
     const SDL_Color FPS_COLOR   = {255, 255, 0, 255};
     const SDL_Color PANEL_BG    = {30, 30, 46, 255};
     const SDL_Color PANEL_BORDER= {69, 71, 90, 255};
@@ -94,6 +95,22 @@ bool DetectionWindow::initialize() {
         return false;
     }
 
+    // Initialize hazmat detector (non-fatal if models not found)
+    if (m_config.enable_hazmat &&
+        !m_config.hazmat_yolo_model.empty() &&
+        !m_config.hazmat_resnet_model.empty()) {
+        if (!m_hazmatDetector.initialize(
+                m_config.hazmat_yolo_model,
+                m_config.hazmat_resnet_model,
+                m_config.hazmat_use_cuda)) {
+            spdlog::warn("Hazmat detector failed to initialize, disabling");
+            m_config.enable_hazmat = false;
+        }
+    } else if (m_config.enable_hazmat) {
+        spdlog::warn("Hazmat model paths not configured, disabling");
+        m_config.enable_hazmat = false;
+    }
+
     spdlog::info("DetectionWindow initialized {}x{}",
                  m_config.window_width, m_config.window_height);
     return true;
@@ -152,6 +169,16 @@ bool DetectionWindow::spinOnce() {
                 m_config.motion_accumulate_weight);
         } else {
             m_motionResults.clear();
+        }
+
+        if (m_config.enable_hazmat && m_hazmatDetector.isLoaded()) {
+            m_hazmatResults = m_hazmatDetector.detect(
+                bgr,
+                m_config.hazmat_detect_interval,
+                m_config.hazmat_conf_threshold,
+                m_config.hazmat_nms_threshold);
+        } else {
+            m_hazmatResults.clear();
         }
 
         // If QR detected, save frame and create crop texture
@@ -328,7 +355,7 @@ void DetectionWindow::renderToggleBar(SDL_Renderer* r, SDL_Rect area) {
     int x = area.x + 12;
     int y = area.y + (area.h - btnH) / 2;
 
-    bool allOn = m_config.enable_qr && m_config.enable_motion;
+    bool allOn = m_config.enable_qr && m_config.enable_motion && m_config.enable_hazmat;
 
     // Colors matching camera_pkg palette
     static const SDL_Color activeColor   = {70, 130, 180, 255};  // BUTTON_NORMAL (steel blue)
@@ -346,6 +373,7 @@ void DetectionWindow::renderToggleBar(SDL_Renderer* r, SDL_Rect area) {
         { allOn ? "ALL ON" : "ALL OFF", allOn, &m_toggleAll },
         { "QR Code",  m_config.enable_qr,     &m_toggleQR },
         { "Motion",   m_config.enable_motion,  &m_toggleMotion },
+        { "Hazmat",   m_config.enable_hazmat,  &m_toggleHazmat },
     };
 
     for (auto& tg : toggles) {
@@ -447,6 +475,46 @@ void DetectionWindow::drawDetections(SDL_Renderer* r, SDL_Rect dst,
         drawText(r, minX, labelY, label, WinColors::QR_COLOR, m_font14);
     }
 
+    // Hazmat bounding boxes (orange-red, 3px thick) with class labels
+    for (auto& hz : m_hazmatResults) {
+        SDL_Rect box = {
+            dst.x + static_cast<int>(hz.x * sx),
+            dst.y + static_cast<int>(hz.y * sy),
+            static_cast<int>(hz.w * sx),
+            static_cast<int>(hz.h * sy)
+        };
+
+        // Draw box (orange-red)
+        SDL_SetRenderDrawColor(r, WinColors::HAZMAT_COLOR.r, WinColors::HAZMAT_COLOR.g,
+                               WinColors::HAZMAT_COLOR.b, WinColors::HAZMAT_COLOR.a);
+        for (int t = 0; t < 3; t++) {
+            SDL_Rect b = {box.x - t, box.y - t, box.w + 2*t, box.h + 2*t};
+            SDL_RenderDrawRect(r, &b);
+        }
+
+        // Build label: "ResNet: Class XX% | YOLO: Class XX%"
+        char labelBuf[128];
+        std::snprintf(labelBuf, sizeof(labelBuf), "%s %.0f%%",
+                      hz.resnet_class.empty() ? hz.yolo_class.c_str() : hz.resnet_class.c_str(),
+                      (hz.resnet_class.empty() ? hz.yolo_confidence : hz.resnet_confidence) * 100.0f);
+
+        int lx = box.x;
+        int ly = box.y - 22;
+        if (ly < dst.y) ly = dst.y;
+
+        // Label background
+        int tw = 0, th = 0;
+        if (m_font14) TTF_SizeText(m_font14, labelBuf, &tw, &th);
+        SDL_Rect labelBg = {lx - 2, ly - 2, tw + 8, th + 4};
+        SDL_SetRenderDrawColor(r, WinColors::LABEL_BG.r, WinColors::LABEL_BG.g,
+                               WinColors::LABEL_BG.b, WinColors::LABEL_BG.a);
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+        SDL_RenderFillRect(r, &labelBg);
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+
+        drawText(r, lx, ly, labelBuf, WinColors::HAZMAT_COLOR, m_font14);
+    }
+
 }
 
 // ----------------------------------------------------------------
@@ -532,9 +600,10 @@ void DetectionWindow::handleMouseClick(int mx, int my) {
 
     // Toggle bar clicks
     if (inRect(mx, my, m_toggleAll)) {
-        bool allOn = m_config.enable_qr && m_config.enable_motion;
+        bool allOn = m_config.enable_qr && m_config.enable_motion && m_config.enable_hazmat;
         m_config.enable_qr = !allOn;
         m_config.enable_motion = !allOn;
+        m_config.enable_hazmat = !allOn && m_hazmatDetector.isLoaded();
         if (!m_config.enable_motion) m_motionDetector.reset();
         changed = true;
     } else if (inRect(mx, my, m_toggleQR)) {
@@ -544,6 +613,11 @@ void DetectionWindow::handleMouseClick(int mx, int my) {
         m_config.enable_motion = !m_config.enable_motion;
         if (!m_config.enable_motion) m_motionDetector.reset();
         changed = true;
+    } else if (inRect(mx, my, m_toggleHazmat)) {
+        if (m_hazmatDetector.isLoaded()) {
+            m_config.enable_hazmat = !m_config.enable_hazmat;
+            changed = true;
+        }
     }
 
     // Min Area: step 500

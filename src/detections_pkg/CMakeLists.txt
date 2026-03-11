@@ -39,6 +39,12 @@ endif()
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs dnn)
 pkg_check_modules(ZBAR REQUIRED zbar)
 
+# ONNX Runtime (for hazmat detection)
+find_library(ONNXRUNTIME_LIB onnxruntime PATHS /usr/local/lib)
+find_path(ONNXRUNTIME_INCLUDE onnxruntime_cxx_api.h PATHS /usr/local/include)
+find_library(ONNXRUNTIME_CUDA_LIB onnxruntime_providers_cuda PATHS /usr/local/lib)
+find_library(ONNXRUNTIME_SHARED_LIB onnxruntime_providers_shared PATHS /usr/local/lib)
+
 # -------------------------------------------------------
 # Sources
 # -------------------------------------------------------
@@ -49,6 +55,7 @@ set(SOURCES
   src/qr_detector.cpp
   src/motion_detector.cpp
   src/magnetometer_panel.cpp
+  src/hazmat_detector.cpp
 )
 
 add_executable(detections_pkg_node ${SOURCES})
@@ -65,6 +72,7 @@ target_include_directories(detections_pkg_node PUBLIC
   ${SPDLOG_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
   ${ZBAR_INCLUDE_DIRS}
+  ${ONNXRUNTIME_INCLUDE}
 )
 
 if(nlohmann_json_FOUND)
@@ -83,8 +91,21 @@ target_link_libraries(detections_pkg_node
   ${SPDLOG_LIBRARIES}
   ${OpenCV_LIBRARIES}
   ${ZBAR_LIBRARIES}
+  ${ONNXRUNTIME_LIB}
   pthread
 )
+
+# Link CUDA EP if available
+if(ONNXRUNTIME_CUDA_LIB AND ONNXRUNTIME_SHARED_LIB)
+  target_link_libraries(detections_pkg_node
+    ${ONNXRUNTIME_CUDA_LIB}
+    ${ONNXRUNTIME_SHARED_LIB}
+  )
+  target_compile_definitions(detections_pkg_node PRIVATE HAS_ORT_CUDA=1)
+  message(STATUS "ONNX Runtime CUDA provider found")
+else()
+  message(STATUS "ONNX Runtime CUDA provider not found, CPU only")
+endif()
 
 ament_target_dependencies(detections_pkg_node
   rclcpp

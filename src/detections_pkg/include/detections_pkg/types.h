@@ -30,6 +30,15 @@ struct MotionBox {
     int x, y, w, h;
 };
 
+// Detected hazmat sign (two-stage: YOLO + ResNet-18)
+struct HazmatDetection {
+    int x, y, w, h;                // bounding box
+    float yolo_confidence = 0.0f;  // YOLO detection confidence
+    std::string yolo_class;        // YOLO class name
+    float resnet_confidence = 0.0f;// ResNet-18 classification confidence
+    std::string resnet_class;      // ResNet-18 class name
+};
+
 // Magnetometer reading
 struct MagReading {
     double x = 0.0;
@@ -66,6 +75,15 @@ struct DetectionConfig {
     int window_width = 1280;
     int window_height = 720;
     int mag_panel_width = 300;
+
+    // Hazmat detection
+    bool enable_hazmat = true;
+    int hazmat_detect_interval = 2;   // run every N frames
+    float hazmat_conf_threshold = 0.5f;
+    float hazmat_nms_threshold = 0.45f;
+    std::string hazmat_yolo_model;
+    std::string hazmat_resnet_model;
+    bool hazmat_use_cuda = true;
 
     // Detection toggles
     bool enable_qr = true;
