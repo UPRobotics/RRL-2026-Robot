@@ -83,6 +83,12 @@ private:
     bool m_loaded = false;
     int m_frameCount = 0;
     std::vector<HazmatDetection> m_cached;
+
+    // Temporal persistence: keep showing last valid detections
+    // for a grace period to avoid flickering
+    static constexpr int GRACE_FRAMES = 8;
+    int m_emptyCount = 0;
+    std::vector<HazmatDetection> m_lastValid;
 };
 
 } // namespace detections

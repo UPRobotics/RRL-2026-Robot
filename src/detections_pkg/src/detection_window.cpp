@@ -3,6 +3,7 @@
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <chrono>
 #include <opencv2/imgcodecs.hpp>
@@ -122,6 +123,7 @@ void DetectionWindow::shutdown() {
     m_magPanel.reset();
 
     if (m_qrCropTex) { SDL_DestroyTexture(m_qrCropTex); m_qrCropTex = nullptr; }
+    if (m_hazmatCropTex) { SDL_DestroyTexture(m_hazmatCropTex); m_hazmatCropTex = nullptr; }
 
     if (m_font12) TTF_CloseFont(m_font12);
     if (m_font14) TTF_CloseFont(m_font14);
@@ -184,6 +186,11 @@ bool DetectionWindow::spinOnce() {
         // If QR detected, save frame and create crop texture
         if (!m_qrResults.empty()) {
             saveQRFrame(bgr, m_qrResults[0]);
+        }
+
+        // If hazmat detected, save crop and create texture
+        if (!m_hazmatResults.empty()) {
+            saveHazmatCrop(bgr, m_hazmatResults[0]);
         }
     }
 
@@ -320,6 +327,9 @@ void DetectionWindow::render() {
 
         // Draw QR crop overlay if available
         renderQRCrop(m_renderer, visibleRect);
+
+        // Draw hazmat crop overlay if available
+        renderHazmatCrop(m_renderer, visibleRect);
     } else {
         // No video – draw placeholder
         SDL_SetRenderDrawColor(m_renderer, WinColors::CAMERA_BG.r, WinColors::CAMERA_BG.g,
@@ -593,6 +603,24 @@ void DetectionWindow::renderSettingsPanel(SDL_Renderer* r, SDL_Rect area) {
     std::snprintf(buf, sizeof(buf), "%d", m_config.qr_detect_interval);
     renderRow("QR Interval", buf, m_btnQRInterval);
 
+    // Hazmat settings separator
+    py += 6;
+    SDL_SetRenderDrawColor(r, WinColors::PANEL_BORDER.r, WinColors::PANEL_BORDER.g,
+                           WinColors::PANEL_BORDER.b, WinColors::PANEL_BORDER.a);
+    SDL_RenderDrawLine(r, px, py, px + area.w - 24, py);
+    py += 8;
+    drawText(r, px, py, "HAZMAT SETTINGS", WinColors::TEXT, m_font14);
+    py += 28;
+
+    std::snprintf(buf, sizeof(buf), "%d", m_config.hazmat_detect_interval);
+    renderRow("Hazmat Interval", buf, m_btnHazmatInterval);
+
+    std::snprintf(buf, sizeof(buf), "%.2f", m_config.hazmat_conf_threshold);
+    renderRow("Hazmat Conf", buf, m_btnHazmatConf);
+
+    std::snprintf(buf, sizeof(buf), "%.2f", m_config.hazmat_nms_threshold);
+    renderRow("Hazmat NMS", buf, m_btnHazmatNms);
+
 }
 
 void DetectionWindow::handleMouseClick(int mx, int my) {
@@ -660,6 +688,30 @@ void DetectionWindow::handleMouseClick(int mx, int my) {
         m_config.qr_detect_interval += 1;
         changed = true;
     }
+    // Hazmat Interval: step 1
+    else if (inRect(mx, my, m_btnHazmatInterval.minus)) {
+        m_config.hazmat_detect_interval = std::max(1, m_config.hazmat_detect_interval - 1);
+        changed = true;
+    } else if (inRect(mx, my, m_btnHazmatInterval.plus)) {
+        m_config.hazmat_detect_interval += 1;
+        changed = true;
+    }
+    // Hazmat Confidence: step 0.05
+    else if (inRect(mx, my, m_btnHazmatConf.minus)) {
+        m_config.hazmat_conf_threshold = std::max(0.05f, m_config.hazmat_conf_threshold - 0.05f);
+        changed = true;
+    } else if (inRect(mx, my, m_btnHazmatConf.plus)) {
+        m_config.hazmat_conf_threshold = std::min(0.95f, m_config.hazmat_conf_threshold + 0.05f);
+        changed = true;
+    }
+    // Hazmat NMS: step 0.05
+    else if (inRect(mx, my, m_btnHazmatNms.minus)) {
+        m_config.hazmat_nms_threshold = std::max(0.05f, m_config.hazmat_nms_threshold - 0.05f);
+        changed = true;
+    } else if (inRect(mx, my, m_btnHazmatNms.plus)) {
+        m_config.hazmat_nms_threshold = std::min(0.95f, m_config.hazmat_nms_threshold + 0.05f);
+        changed = true;
+    }
     if (changed) saveConfig();
 }
 
@@ -681,6 +733,10 @@ void DetectionWindow::saveConfig() {
         j["detection"]["motion_accumulate_weight"]  = m_config.motion_accumulate_weight;
 
         j["camera"]["rotation"] = m_config.rotation;
+
+        j["hazmat"]["detect_interval"]       = m_config.hazmat_detect_interval;
+        j["hazmat"]["confidence_threshold"]  = m_config.hazmat_conf_threshold;
+        j["hazmat"]["nms_threshold"]         = m_config.hazmat_nms_threshold;
 
         std::ofstream out(m_config.config_path);
         out << j.dump(2) << std::endl;
@@ -825,6 +881,118 @@ void DetectionWindow::renderQRCrop(SDL_Renderer* r, SDL_Rect videoArea) {
 
     // Data label below crop
     drawText(r, dx, dy + drawH + 2, "QR: " + m_qrCropData, WinColors::QR_COLOR, m_font12);
+}
+
+void DetectionWindow::saveHazmatCrop(const cv::Mat& frame, const HazmatDetection& hz) {
+    if (frame.empty() || hz.w <= 0 || hz.h <= 0) return;
+
+    // Crop region with padding
+    int pad = 20;
+    int x1 = std::max(0, hz.x - pad);
+    int y1 = std::max(0, hz.y - pad);
+    int x2 = std::min(frame.cols, hz.x + hz.w + pad);
+    int y2 = std::min(frame.rows, hz.y + hz.h + pad);
+    if (x2 <= x1 || y2 <= y1) return;
+
+    cv::Rect roi(x1, y1, x2 - x1, y2 - y1);
+    cv::Mat crop = frame(roi).clone();
+
+    // Draw bounding box on crop
+    cv::Scalar color(50, 100, 255); // BGR orange-red
+    cv::rectangle(crop, cv::Point(hz.x - x1, hz.y - y1),
+                  cv::Point(hz.x + hz.w - x1, hz.y + hz.h - y1), color, 2);
+
+    // Label on crop
+    std::string label = hz.resnet_class.empty() ? hz.yolo_class : hz.resnet_class;
+    cv::putText(crop, label, cv::Point(4, crop.rows - 8),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, color, 1);
+
+    // Build unique key from class name
+    std::string key = label;
+
+    // Save to disk if this class hasn't been saved yet
+    if (m_seenHazmatClasses.find(key) == m_seenHazmatClasses.end()) {
+        m_seenHazmatClasses.insert(key);
+
+        std::string saveDir = std::string(getenv("HOME") ? getenv("HOME") : ".") + "/roboticaWS/detections/hazmat";
+        std::filesystem::create_directories(saveDir);
+
+        auto now = std::chrono::system_clock::now();
+        auto t = std::chrono::system_clock::to_time_t(now);
+        char filename[128];
+        std::strftime(filename, sizeof(filename), "hazmat_%Y%m%d_%H%M%S", std::localtime(&t));
+
+        std::string savePath = saveDir + "/" + filename + "_" + label + ".png";
+        cv::imwrite(savePath, crop);
+        spdlog::info("Hazmat crop saved: {}", savePath);
+    }
+
+    // Convert crop to BGRA for SDL texture
+    cv::Mat bgra;
+    cv::cvtColor(crop, bgra, cv::COLOR_BGR2BGRA);
+
+    if (m_hazmatCropTex) { SDL_DestroyTexture(m_hazmatCropTex); m_hazmatCropTex = nullptr; }
+
+    m_hazmatCropTex = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ARGB8888,
+                                        SDL_TEXTUREACCESS_STREAMING,
+                                        bgra.cols, bgra.rows);
+    if (m_hazmatCropTex) {
+        void* pixels; int pitch;
+        if (SDL_LockTexture(m_hazmatCropTex, nullptr, &pixels, &pitch) == 0) {
+            for (int row = 0; row < bgra.rows; row++) {
+                memcpy(static_cast<uint8_t*>(pixels) + row * pitch,
+                       bgra.ptr(row), bgra.cols * 4);
+            }
+            SDL_UnlockTexture(m_hazmatCropTex);
+        }
+        m_hazmatCropW = bgra.cols;
+        m_hazmatCropH = bgra.rows;
+        m_hazmatCropLabel = label;
+        m_hazmatCropTime = std::chrono::steady_clock::now();
+    }
+}
+
+void DetectionWindow::renderHazmatCrop(SDL_Renderer* r, SDL_Rect videoArea) {
+    if (!m_hazmatCropTex) return;
+
+    // Show the crop for 10 seconds after last detection
+    auto elapsed = std::chrono::steady_clock::now() - m_hazmatCropTime;
+    if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() > 10) {
+        SDL_DestroyTexture(m_hazmatCropTex);
+        m_hazmatCropTex = nullptr;
+        return;
+    }
+
+    // Render in bottom-right corner of video area, max 250px wide
+    int maxW = 250;
+    float scale = 1.0f;
+    if (m_hazmatCropW > maxW) scale = static_cast<float>(maxW) / m_hazmatCropW;
+    int drawW = static_cast<int>(m_hazmatCropW * scale);
+    int drawH = static_cast<int>(m_hazmatCropH * scale);
+
+    int margin = 10;
+    int dx = videoArea.x + videoArea.w - drawW - margin;
+    int dy = videoArea.y + videoArea.h - drawH - margin - 20;
+
+    // Background
+    SDL_Rect bgRect = {dx - 4, dy - 4, drawW + 8, drawH + 28};
+    SDL_SetRenderDrawColor(r, 20, 20, 30, 220);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+    SDL_RenderFillRect(r, &bgRect);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+
+    // Border (orange-red to match hazmat color)
+    SDL_SetRenderDrawColor(r, WinColors::HAZMAT_COLOR.r, WinColors::HAZMAT_COLOR.g,
+                           WinColors::HAZMAT_COLOR.b, WinColors::HAZMAT_COLOR.a);
+    SDL_RenderDrawRect(r, &bgRect);
+
+    // Crop image
+    SDL_Rect cropDst = {dx, dy, drawW, drawH};
+    SDL_RenderCopy(r, m_hazmatCropTex, nullptr, &cropDst);
+
+    // Label below crop
+    drawText(r, dx, dy + drawH + 2, "Hazmat: " + m_hazmatCropLabel,
+             WinColors::HAZMAT_COLOR, m_font12);
 }
 
 } // namespace detections

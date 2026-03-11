@@ -8,7 +8,7 @@
 namespace detections {
 
 HazmatDetector::HazmatDetector()
-    : m_env(ORT_LOGGING_LEVEL_WARNING, "HazmatDetector")
+    : m_env(ORT_LOGGING_LEVEL_ERROR, "HazmatDetector")
 {}
 
 HazmatDetector::~HazmatDetector() = default;
@@ -103,7 +103,20 @@ std::vector<HazmatDetection> HazmatDetector::detect(
         classifyCrop(crop, det);
     }
 
-    m_cached = detections;
+    // Temporal persistence: avoid flickering by keeping the last valid
+    // detections for a grace period when YOLO intermittently misses
+    if (!detections.empty()) {
+        m_lastValid = detections;
+        m_emptyCount = 0;
+        m_cached = detections;
+    } else if (m_emptyCount < GRACE_FRAMES && !m_lastValid.empty()) {
+        m_emptyCount++;
+        m_cached = m_lastValid;
+    } else {
+        m_lastValid.clear();
+        m_cached.clear();
+    }
+
     return m_cached;
 }
 

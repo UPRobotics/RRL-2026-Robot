@@ -42,6 +42,8 @@ private:
     void rotateFrame(cv::Mat& frame);
     void saveQRFrame(const cv::Mat& frame, const QRDetection& qr);
     void renderQRCrop(SDL_Renderer* r, SDL_Rect videoArea);
+    void saveHazmatCrop(const cv::Mat& frame, const HazmatDetection& hz);
+    void renderHazmatCrop(SDL_Renderer* r, SDL_Rect videoArea);
 
     // Returns true if (mx,my) is inside rect
     static bool inRect(int mx, int my, SDL_Rect r) {
@@ -61,6 +63,9 @@ private:
     SettingRow m_btnWeight{};
     SettingRow m_btnSkipFrames{};
     SettingRow m_btnQRInterval{};
+    SettingRow m_btnHazmatInterval{};
+    SettingRow m_btnHazmatConf{};
+    SettingRow m_btnHazmatNms{};
 
     // Toggle bar button rects
     SDL_Rect m_toggleAll{};
@@ -100,6 +105,14 @@ private:
     // Last full frame for QR save
     cv::Mat m_lastFrame;
     std::set<std::string> m_seenQRData;
+
+    // Hazmat crop display
+    SDL_Texture* m_hazmatCropTex = nullptr;
+    int m_hazmatCropW = 0;
+    int m_hazmatCropH = 0;
+    std::string m_hazmatCropLabel;
+    std::chrono::steady_clock::time_point m_hazmatCropTime;
+    std::set<std::string> m_seenHazmatClasses;
 
     // Font
     TTF_Font* m_font12 = nullptr;
