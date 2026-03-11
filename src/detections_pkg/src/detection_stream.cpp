@@ -88,6 +88,19 @@ bool DetectionStream::getLatestBGRFrame(cv::Mat& out) {
 // Decoder thread
 // --------------------------------------------------------
 
+int DetectionStream::ffmpegInterruptCB(void* opaque) {
+    auto* self = static_cast<DetectionStream*>(opaque);
+    if (self->m_stopRequested.load()) return 1;
+    if (std::chrono::steady_clock::now() > self->m_ioDeadline) return 1;
+    return 0;
+}
+
+void DetectionStream::restart() {
+    spdlog::info("Stream restart requested");
+    stop();
+    start();
+}
+
 void DetectionStream::decoderThread() {
     spdlog::debug("Decoder thread started");
 
@@ -104,9 +117,27 @@ void DetectionStream::decoderThread() {
             std::lock_guard<std::mutex> lock(m_statsMutex);
             m_stats.state = StreamState::Connected;
         }
+        m_reconnectAttempts = 0;
+        m_lastFrameTime = std::chrono::steady_clock::now();
         spdlog::info("Connected to {}", url);
 
-        while (!m_stopRequested.load() && decodeFrame()) {}
+        while (!m_stopRequested.load()) {
+            // Update IO deadline before each read
+            m_ioDeadline = std::chrono::steady_clock::now()
+                         + std::chrono::seconds(IO_TIMEOUT_SEC);
+
+            if (!decodeFrame()) break;
+
+            m_lastFrameTime = std::chrono::steady_clock::now();
+        }
+
+        // Check if we timed out vs clean exit
+        if (!m_stopRequested.load()) {
+            auto gap = std::chrono::steady_clock::now() - m_lastFrameTime;
+            auto gapSec = std::chrono::duration_cast<std::chrono::seconds>(gap).count();
+            if (gapSec >= FRAME_TIMEOUT_SEC)
+                spdlog::warn("No frames for {}s, reconnecting", gapSec);
+        }
 
         cleanupDecoder();
 
@@ -125,6 +156,12 @@ bool DetectionStream::initDecoder(const std::string& url) {
 
     m_formatCtx = avformat_alloc_context();
     if (!m_formatCtx) return false;
+
+    // Install interrupt callback so blocking FFmpeg calls can be cancelled
+    m_ioDeadline = std::chrono::steady_clock::now()
+                 + std::chrono::seconds(IO_TIMEOUT_SEC);
+    m_formatCtx->interrupt_callback.callback = ffmpegInterruptCB;
+    m_formatCtx->interrupt_callback.opaque   = this;
 
     // Low-latency RTSP options (same as camera_pkg)
     AVDictionary* opts = nullptr;
@@ -481,19 +518,15 @@ void DetectionStream::attemptReconnect() {
         m_stats.state = StreamState::Reconnecting;
     }
 
-    if (m_reconnectAttempts > MAX_RECONNECT) {
-        spdlog::error("Max reconnect attempts reached");
-        {
-            std::lock_guard<std::mutex> lock(m_statsMutex);
-            m_stats.state = StreamState::Error;
-        }
-        m_stopRequested = true;
-        return;
-    }
+    // Exponential backoff: 2s, 4s, 8s, 16s… capped at 30s
+    int shift = std::min(m_reconnectAttempts - 1, 4);
+    int delayMs = std::min(RECONNECT_BASE_MS * (1 << shift), RECONNECT_MAX_MS);
 
-    spdlog::info("Reconnect attempt {}/{} in {}ms",
-                 m_reconnectAttempts, MAX_RECONNECT, RECONNECT_DELAY_MS);
-    std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_DELAY_MS));
+    spdlog::info("Reconnect attempt {} in {}ms", m_reconnectAttempts, delayMs);
+
+    // Interruptible sleep (100ms chunks)
+    for (int slept = 0; slept < delayMs && !m_stopRequested.load(); slept += 100)
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
 }
 
 } // namespace detections

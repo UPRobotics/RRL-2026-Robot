@@ -162,6 +162,17 @@ bool DetectionWindow::spinOnce() {
     processEvents();
     if (m_quit) return false;
 
+    // Auto-restart stream if it died
+    if (!m_stream->isRunning()) {
+        auto stats = m_stream->getStats();
+        if (stats.state == StreamState::Error ||
+            stats.state == StreamState::Disconnected) {
+            spdlog::warn("Stream not running ({}), restarting...",
+                         static_cast<int>(stats.state));
+            m_stream->restart();
+        }
+    }
+
     // Upload pending frame to texture
     m_stream->updateTextureFromMainThread();
 
@@ -352,12 +363,32 @@ void DetectionWindow::render() {
         // Draw hazmat crop overlay if available
         renderHazmatCrop(m_renderer, visibleRect);
     } else {
-        // No video – draw placeholder
+        // No video – show state-dependent placeholder
         SDL_SetRenderDrawColor(m_renderer, WinColors::CAMERA_BG.r, WinColors::CAMERA_BG.g,
                                WinColors::CAMERA_BG.b, WinColors::CAMERA_BG.a);
         SDL_RenderFillRect(m_renderer, &videoRect);
-        drawText(m_renderer, videoAreaW / 2 - 60, videoY + videoH / 2 - 8,
-                 "Connecting...", WinColors::YELLOW, m_font16);
+
+        auto stats = m_stream->getStats();
+        const char* msg = "Connecting...";
+        SDL_Color msgColor = WinColors::YELLOW;
+        switch (stats.state) {
+            case StreamState::Reconnecting:
+                msg = "Reconnecting...";
+                msgColor = WinColors::YELLOW;
+                break;
+            case StreamState::Error:
+                msg = "Connection lost – restarting...";
+                msgColor = WinColors::RED;
+                break;
+            case StreamState::Disconnected:
+                msg = "Disconnected – restarting...";
+                msgColor = WinColors::RED;
+                break;
+            default:
+                break;
+        }
+        drawText(m_renderer, videoAreaW / 2 - 100, videoY + videoH / 2 - 8,
+                 msg, msgColor, m_font16);
     }
 
     // ---- Magnetometer panel (top-right) ----
@@ -1203,7 +1234,7 @@ float DetectionWindow::sampleRamPercent() {
 }
 
 void DetectionWindow::sampleGpuStats() {
-    const char* cmd = "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits -i 0";
+    const char* cmd = "timeout 3 nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits -i 0";
     FILE* pipe = popen(cmd, "r");
     if (!pipe) return;
 
@@ -1232,7 +1263,7 @@ void DetectionWindow::sampleGpuStats() {
 float DetectionWindow::pingCameraMs() {
     if (m_pingCameraIp.empty()) return 0.0f;
 
-    std::string cmd = "ping -c 1 -W 1 " + m_pingCameraIp + " 2>/dev/null";
+    std::string cmd = "timeout 2 ping -c 1 -W 1 " + m_pingCameraIp + " 2>/dev/null";
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) return 0.0f;
 

@@ -7,6 +7,7 @@
 #include <mutex>
 #include <vector>
 #include <functional>
+#include <chrono>
 
 extern "C" {
 struct AVFormatContext;
@@ -32,6 +33,7 @@ public:
 
     bool start();
     void stop();
+    void restart();  // stop + start (safe from any thread)
     bool isRunning() const { return m_running.load(); }
 
     StreamStats getStats() const;
@@ -53,6 +55,7 @@ private:
     bool decodeFrame();
     bool convertFrame(AVFrame* frame);
     void attemptReconnect();
+    static int ffmpegInterruptCB(void* opaque);
 
     DetectionConfig m_config;
     SDL_Renderer* m_renderer;
@@ -98,10 +101,18 @@ private:
     int m_fpsFrameCount = 0;
     bool m_formatLogged = false;
 
-    // Reconnect
+    // Reconnect (exponential backoff, no hard limit)
     int m_reconnectAttempts = 0;
-    static constexpr int MAX_RECONNECT = 10;
-    static constexpr int RECONNECT_DELAY_MS = 3000;
+    static constexpr int RECONNECT_BASE_MS  = 2000;
+    static constexpr int RECONNECT_MAX_MS   = 30000;
+
+    // IO timeout for FFmpeg blocking calls
+    std::chrono::steady_clock::time_point m_ioDeadline;
+    static constexpr int IO_TIMEOUT_SEC = 10;
+
+    // Frame watchdog: detect silent stream death
+    std::chrono::steady_clock::time_point m_lastFrameTime;
+    static constexpr int FRAME_TIMEOUT_SEC = 10;
 };
 
 } // namespace detections
