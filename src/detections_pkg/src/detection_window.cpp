@@ -6,6 +6,9 @@
 #include <filesystem>
 #include <fstream>
 #include <chrono>
+#include <sstream>
+#include <regex>
+#include <unistd.h>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -30,7 +33,14 @@ namespace WinColors {
     const SDL_Color BTN_HOVER   = {88, 91, 112, 255};
     const SDL_Color BTN_TEXT    = {205, 214, 244, 255};
     const SDL_Color LABEL_BG    = {20, 20, 30, 200};
+    const SDL_Color STATSBAR_BG = {40, 40, 45, 255};
+    const SDL_Color STAT_LABEL  = {180, 180, 180, 255};
+    const SDL_Color STAT_GOOD   = {40, 180, 99, 255};
+    const SDL_Color STAT_WARN   = {241, 196, 15, 255};
+    const SDL_Color STAT_CRIT   = {231, 76, 60, 255};
 }
+
+static constexpr int FOOTER_H = 50;
 
 DetectionWindow::DetectionWindow(const DetectionConfig& config,
                                  rclcpp::Node::SharedPtr node)
@@ -114,10 +124,20 @@ bool DetectionWindow::initialize() {
 
     spdlog::info("DetectionWindow initialized {}x{}",
                  m_config.window_width, m_config.window_height);
+
+    // Extract camera IP for latency ping
+    std::regex ipRegex("@([0-9.]+):");
+    std::smatch ipMatch;
+    if (std::regex_search(m_config.rtsp_url, ipMatch, ipRegex) && ipMatch.size() > 1) {
+        m_pingCameraIp = ipMatch[1];
+    }
+
+    startTelemetry();
     return true;
 }
 
 void DetectionWindow::shutdown() {
+    stopTelemetry();
     if (m_stream) m_stream->stop();
     m_stream.reset();
     m_magPanel.reset();
@@ -253,10 +273,11 @@ void DetectionWindow::render() {
 
     int panelW = m_config.mag_panel_width;
     int videoAreaW = winW - panelW;
+    int contentH = winH - FOOTER_H;
 
     // Split the right panel: top half magnetometer, bottom half settings
-    int magH = winH / 2;
-    int settingsH = winH - magH;
+    int magH = contentH / 2;
+    int settingsH = contentH - magH;
 
     // ---- Toggle bar (top of video area) ----
     static constexpr int TOGGLE_BAR_H = 32;
@@ -266,7 +287,7 @@ void DetectionWindow::render() {
     // ---- Video area (below toggle bar) ----
     SDL_Texture* tex = m_stream->getTexture();
     int videoY = TOGGLE_BAR_H;
-    int videoH = winH - TOGGLE_BAR_H;
+    int videoH = contentH - TOGGLE_BAR_H;
     SDL_Rect videoRect = {0, videoY, videoAreaW, videoH};
 
     double renderAngle = static_cast<double>(m_config.rotation);
@@ -346,6 +367,10 @@ void DetectionWindow::render() {
     // ---- Settings panel (bottom-right) ----
     SDL_Rect settingsRect = {videoAreaW, magH, panelW, settingsH};
     renderSettingsPanel(m_renderer, settingsRect);
+
+    // ---- Footer (bottom, full width) ----
+    SDL_Rect footerRect = {0, contentH, winW, FOOTER_H};
+    renderFooter(m_renderer, footerRect);
 
     SDL_RenderPresent(m_renderer);
 }
@@ -993,6 +1018,237 @@ void DetectionWindow::renderHazmatCrop(SDL_Renderer* r, SDL_Rect videoArea) {
     // Label below crop
     drawText(r, dx, dy + drawH + 2, "Hazmat: " + m_hazmatCropLabel,
              WinColors::HAZMAT_COLOR, m_font12);
+}
+
+// ----------------------------------------------------------------
+// Footer (system stats bar)
+// ----------------------------------------------------------------
+
+static SDL_Color getStatColor(float pct) {
+    if (pct < 60.0f) return WinColors::STAT_GOOD;
+    if (pct < 80.0f) return WinColors::STAT_WARN;
+    return WinColors::STAT_CRIT;
+}
+
+void DetectionWindow::renderFooter(SDL_Renderer* r, SDL_Rect area) {
+    // Background
+    SDL_SetRenderDrawColor(r, WinColors::STATSBAR_BG.r, WinColors::STATSBAR_BG.g,
+                           WinColors::STATSBAR_BG.b, WinColors::STATSBAR_BG.a);
+    SDL_RenderFillRect(r, &area);
+
+    // Top border
+    SDL_SetRenderDrawColor(r, WinColors::PANEL_BORDER.r, WinColors::PANEL_BORDER.g,
+                           WinColors::PANEL_BORDER.b, WinColors::PANEL_BORDER.a);
+    SDL_RenderDrawLine(r, area.x, area.y, area.x + area.w, area.y);
+
+    float cpu = m_cpuUsage.load();
+    float ram = m_ramUsage.load();
+    float gpu = m_gpuUsage.load();
+    float vramUsed = m_vramUsedMb.load();
+    float vramTotal = m_vramTotalMb.load();
+    float lat = m_latency.load();
+
+    int sections = 6;
+    int secW = area.w / sections;
+    int px = 12;
+    int labelY = area.y + 6;
+    int valueY = area.y + 24;
+
+    char buf[32];
+
+    // CPU
+    drawText(r, area.x + px, labelY, "CPU Usage", WinColors::STAT_LABEL, m_font12);
+    std::snprintf(buf, sizeof(buf), "%.1f%%", cpu);
+    drawText(r, area.x + px, valueY, buf, getStatColor(cpu), m_font16);
+
+    // RAM
+    int col2 = area.x + secW + px;
+    drawText(r, col2, labelY, "RAM Usage", WinColors::STAT_LABEL, m_font12);
+    std::snprintf(buf, sizeof(buf), "%.1f%%", ram);
+    drawText(r, col2, valueY, buf, getStatColor(ram), m_font16);
+
+    // GPU Core
+    int col3 = area.x + secW * 2 + px;
+    drawText(r, col3, labelY, "GPU Core", WinColors::STAT_LABEL, m_font12);
+    std::snprintf(buf, sizeof(buf), "%.0f%%", gpu);
+    drawText(r, col3, valueY, buf, getStatColor(gpu), m_font16);
+
+    // VRAM
+    int col4 = area.x + secW * 3 + px;
+    drawText(r, col4, labelY, "VRAM", WinColors::STAT_LABEL, m_font12);
+    if (vramTotal > 0.0f) {
+        float vramPct = (vramUsed / vramTotal) * 100.0f;
+        std::snprintf(buf, sizeof(buf), "%.0f/%.0f MB", vramUsed, vramTotal);
+        drawText(r, col4, valueY, buf, getStatColor(vramPct), m_font16);
+    } else {
+        drawText(r, col4, valueY, "N/A", WinColors::STAT_LABEL, m_font16);
+    }
+
+    // CUDA Utilization
+    // (reusing gpu atomic — nvidia-smi utilization.gpu is the CUDA engine %)
+    // We already have GPU core %. For a separate "CUDA" label, we can show
+    // the memory controller utilization which indicates CUDA memory bandwidth.
+    // However, the simplest useful metric is the compute utilization we already have.
+    // Let's show VRAM percentage here instead as a bar-style.
+
+    // Camera Latency
+    int col6 = area.x + secW * 4 + px;
+    drawText(r, col6, labelY, "Camera Latency", WinColors::STAT_LABEL, m_font12);
+    std::snprintf(buf, sizeof(buf), "%.1f ms", lat);
+    SDL_Color latColor;
+    if (lat < 50.0f) latColor = WinColors::STAT_GOOD;
+    else if (lat < 100.0f) latColor = WinColors::STAT_WARN;
+    else latColor = WinColors::STAT_CRIT;
+    drawText(r, col6, valueY, buf, latColor, m_font16);
+}
+
+// ----------------------------------------------------------------
+// Telemetry thread
+// ----------------------------------------------------------------
+
+void DetectionWindow::startTelemetry() {
+    if (m_telemetryRunning) return;
+    m_telemetryRunning = true;
+    m_telemetryThread = std::thread(&DetectionWindow::telemetryLoop, this);
+}
+
+void DetectionWindow::stopTelemetry() {
+    m_telemetryRunning = false;
+    if (m_telemetryThread.joinable())
+        m_telemetryThread.join();
+}
+
+void DetectionWindow::telemetryLoop() {
+    using namespace std::chrono_literals;
+    while (m_telemetryRunning) {
+        m_cpuUsage.store(sampleCpuPercent());
+        m_ramUsage.store(sampleRamPercent());
+        sampleGpuStats();
+        m_latency.store(pingCameraMs());
+
+        // Sleep in 100ms chunks so we can stop quickly
+        for (int i = 0; i < 10 && m_telemetryRunning; ++i)
+            std::this_thread::sleep_for(100ms);
+    }
+}
+
+float DetectionWindow::sampleCpuPercent() {
+    std::ifstream statFile("/proc/self/stat");
+    if (!statFile.is_open()) return 0.0f;
+
+    std::string line;
+    std::getline(statFile, line);
+    std::istringstream iss(line);
+
+    std::string tmp;
+    long utime = 0, stime = 0, cutime = 0, cstime = 0;
+    for (int i = 1; i <= 17; ++i) {
+        iss >> tmp;
+        if (i == 14) utime = std::stol(tmp);
+        if (i == 15) stime = std::stol(tmp);
+        if (i == 16) cutime = std::stol(tmp);
+        if (i == 17) cstime = std::stol(tmp);
+    }
+
+    uint64_t procJiffies = static_cast<uint64_t>(utime + stime + cutime + cstime);
+
+    std::ifstream totalFile("/proc/stat");
+    if (!totalFile.is_open()) return 0.0f;
+    std::string cpuLine;
+    std::getline(totalFile, cpuLine);
+    std::istringstream cpuStream(cpuLine);
+    cpuStream >> tmp; // skip "cpu"
+    uint64_t user = 0, nice = 0, sys = 0, idle = 0, iowait = 0, irq = 0, softirq = 0, steal = 0;
+    cpuStream >> user >> nice >> sys >> idle >> iowait >> irq >> softirq >> steal;
+    uint64_t totalJiffies = user + nice + sys + idle + iowait + irq + softirq + steal;
+
+    float percent = 0.0f;
+    if (m_hasPrevCpuSample) {
+        uint64_t deltaProc = procJiffies - m_prevProcJiffies;
+        uint64_t deltaTotal = totalJiffies - m_prevTotalJiffies;
+        if (deltaTotal > 0) {
+            percent = (static_cast<float>(deltaProc) / static_cast<float>(deltaTotal)) * 100.0f;
+        }
+    }
+
+    m_prevProcJiffies = procJiffies;
+    m_prevTotalJiffies = totalJiffies;
+    m_hasPrevCpuSample = true;
+    return percent;
+}
+
+float DetectionWindow::sampleRamPercent() {
+    long pageSize = sysconf(_SC_PAGESIZE);
+    std::ifstream statm("/proc/self/statm");
+    if (!statm.is_open()) return 0.0f;
+    long size = 0, resident = 0;
+    statm >> size >> resident;
+    uint64_t rssBytes = static_cast<uint64_t>(resident) * static_cast<uint64_t>(pageSize);
+
+    std::ifstream meminfo("/proc/meminfo");
+    if (!meminfo.is_open()) return 0.0f;
+    std::string key;
+    uint64_t memTotalKb = 0;
+    while (meminfo >> key) {
+        if (key == "MemTotal:") {
+            meminfo >> memTotalKb;
+            break;
+        }
+        std::getline(meminfo, key);
+    }
+    if (memTotalKb == 0) return 0.0f;
+
+    float memTotalBytes = static_cast<float>(memTotalKb) * 1024.0f;
+    return (static_cast<float>(rssBytes) / memTotalBytes) * 100.0f;
+}
+
+void DetectionWindow::sampleGpuStats() {
+    const char* cmd = "nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits -i 0";
+    FILE* pipe = popen(cmd, "r");
+    if (!pipe) return;
+
+    char buffer[256];
+    std::string output;
+    if (fgets(buffer, sizeof(buffer), pipe))
+        output = buffer;
+    pclose(pipe);
+
+    try {
+        // Output format: "gpu_util, mem_used, mem_total"
+        std::istringstream ss(output);
+        std::string tok;
+        float vals[3] = {0, 0, 0};
+        for (int i = 0; i < 3 && std::getline(ss, tok, ','); ++i) {
+            tok.erase(0, tok.find_first_not_of(" \t\n\r"));
+            tok.erase(tok.find_last_not_of(" \t\n\r") + 1);
+            if (!tok.empty()) vals[i] = std::stof(tok);
+        }
+        m_gpuUsage.store(vals[0]);
+        m_vramUsedMb.store(vals[1]);
+        m_vramTotalMb.store(vals[2]);
+    } catch (...) {}
+}
+
+float DetectionWindow::pingCameraMs() {
+    if (m_pingCameraIp.empty()) return 0.0f;
+
+    std::string cmd = "ping -c 1 -W 1 " + m_pingCameraIp + " 2>/dev/null";
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) return 0.0f;
+
+    char buffer[256];
+    std::string output;
+    while (fgets(buffer, sizeof(buffer), pipe))
+        output += buffer;
+    pclose(pipe);
+
+    std::regex timeRegex("time=([0-9.]+) ms");
+    std::smatch match;
+    if (std::regex_search(output, match, timeRegex) && match.size() > 1) {
+        try { return std::stof(match[1]); }
+        catch (...) {}
+    }
+    return 0.0f;
 }
 
 } // namespace detections

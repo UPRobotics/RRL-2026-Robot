@@ -13,6 +13,8 @@
 #include <opencv2/core.hpp>
 #include <vector>
 #include <set>
+#include <thread>
+#include <atomic>
 
 namespace detections {
 
@@ -44,6 +46,16 @@ private:
     void renderQRCrop(SDL_Renderer* r, SDL_Rect videoArea);
     void saveHazmatCrop(const cv::Mat& frame, const HazmatDetection& hz);
     void renderHazmatCrop(SDL_Renderer* r, SDL_Rect videoArea);
+    void renderFooter(SDL_Renderer* r, SDL_Rect area);
+
+    // Telemetry
+    void startTelemetry();
+    void stopTelemetry();
+    void telemetryLoop();
+    float sampleCpuPercent();
+    float sampleRamPercent();
+    void  sampleGpuStats();
+    float pingCameraMs();
 
     // Returns true if (mx,my) is inside rect
     static bool inRect(int mx, int my, SDL_Rect r) {
@@ -124,6 +136,20 @@ private:
     void drawText(SDL_Renderer* r, int x, int y,
                   const std::string& text, SDL_Color color,
                   TTF_Font* font = nullptr);
+
+    // Telemetry state
+    std::thread m_telemetryThread;
+    std::atomic<bool> m_telemetryRunning{false};
+    std::atomic<float> m_cpuUsage{0.0f};
+    std::atomic<float> m_ramUsage{0.0f};
+    std::atomic<float> m_gpuUsage{0.0f};
+    std::atomic<float> m_vramUsedMb{0.0f};
+    std::atomic<float> m_vramTotalMb{0.0f};
+    std::atomic<float> m_latency{0.0f};
+    uint64_t m_prevProcJiffies = 0;
+    uint64_t m_prevTotalJiffies = 0;
+    bool m_hasPrevCpuSample = false;
+    std::string m_pingCameraIp;
 };
 
 } // namespace detections
