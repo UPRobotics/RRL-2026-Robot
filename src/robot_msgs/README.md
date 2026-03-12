@@ -27,6 +27,7 @@ Parámetros **enviados por el operador** para modificar el comportamiento del ro
 | Campo | Tipo | Descripción |
 |---|---|---|
 | `config_index` | `uint8` | Índice del motor en el arreglo `motors[]` del `config.json` |
+| `motor_vesc_id` | `uint8` | ID del controlador VESC (firmware CAN/UART), usado por `autoConnect()` |
 | `motor_name` | `string` | Nombre del motor (para display y validación) |
 | `rpm_limit` | `float32` | RPM máximos permitidos |
 | `duty_cycle_limit` | `float32` | Duty cycle máximo permitido (0.0 a 1.0) |
@@ -128,7 +129,7 @@ Cambiar el límite de RPM del Track Izquierdo (índice 1) a 3000:
 
 ```bash
 ros2 topic pub --once /ground_station/motor_config robot_msgs/msg/MotorConfig \
-  '{config_index: 1, motor_name: "Track Izquierdo", rpm_limit: 3000.0, duty_cycle_limit: 1.0, control_mode: 0, inverted: false}'
+  '{config_index: 1, motor_vesc_id: 1, motor_name: "Track Izquierdo", rpm_limit: 3000.0, duty_cycle_limit: 1.0, control_mode: 0, inverted: false}'
 ```
 
 El cambio se aplica inmediatamente en `body_node` y se guarda en `config.json` para que persista al siguiente arranque.

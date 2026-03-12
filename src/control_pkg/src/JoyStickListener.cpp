@@ -1,63 +1,56 @@
-#include "geometry_msgs/msg/twist.hpp"
 #include "sensor_msgs/msg/joy.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float32.hpp"
-#include "std_msgs/msg/bool.hpp"
 
-#include <functional>
+// QoS para control en tiempo real:
+// - BEST_EFFORT: sin retransmisión, menor latencia sobre WiFi
+// - depth=1:    el robot siempre lee el valor más reciente, nunca uno viejo
+static const rclcpp::QoS CONTROL_QOS = rclcpp::QoS(rclcpp::KeepLast(1))
+    .best_effort()
+    .durability_volatile();
 
-class Joystick_Listener : public rclcpp::Node{
-    public:
-    Joystick_Listener() : Node("joystick_node"){
-        // Joystick SUbscriber
-        subscriber__ =  this->create_subscription<sensor_msgs::msg::Joy>(
-            "/joy",10,
-            std::bind(&Joystick_Listener::callback, this, std::placeholders::_1));
-    
-        // Publishers  
-        yLeftAxis = create_publisher<std_msgs::msg::Float32>(
-            "y_left_axis", 10
-        );
+class JoystickListener : public rclcpp::Node {
+public:
+    JoystickListener() : Node("joystick_node") {
+        joy_sub_ = create_subscription<sensor_msgs::msg::Joy>(
+            "/joy", CONTROL_QOS,
+            std::bind(&JoystickListener::onJoy, this, std::placeholders::_1));
 
-        xLeftAxis = create_publisher<std_msgs::msg::Float32>(
-            "x_left_axis", 10
-        );
+        // Tracks (diferencial tipo tanque)
+        pub_left_y_  = create_publisher<std_msgs::msg::Float32>("/joystick/left_y",  CONTROL_QOS);
+        pub_left_x_  = create_publisher<std_msgs::msg::Float32>("/joystick/left_x",  CONTROL_QOS);
 
-        yRightAxis = create_publisher<std_msgs::msg::Float32>(
-            "y_right_axis", 10
-        );
-
-        xRightAxis = create_publisher<std_msgs::msg::Float32>(
-            "x_right_axis", 10
-        );
+        // Flippers (independientes)
+        pub_right_y_ = create_publisher<std_msgs::msg::Float32>("/joystick/right_y", CONTROL_QOS); // flipper delantero
+        pub_right_x_ = create_publisher<std_msgs::msg::Float32>("/joystick/right_x", CONTROL_QOS); // flipper trasero
     }
 
-    private:
-    void callback(sensor_msgs::msg::Joy::SharedPtr message){
-        std_msgs::msg::Float32 lx, ly, rx, ry;
+private:
+    void onJoy(const sensor_msgs::msg::Joy::SharedPtr msg) {
+        if (msg->axes.size() < 5) return;
 
-        ly.data = message->axes[1]; // Left Y
-        lx.data = message->axes[0]; // Left X
-        ry.data = message->axes[4]; // Right Y
-        rx.data = message->axes[3]; // Right X
+        std_msgs::msg::Float32 left_y, left_x, right_y, right_x;
+        left_y.data  = msg->axes[1]; // Left  joystick Y → tracks adelante/atrás
+        left_x.data  = msg->axes[0]; // Left  joystick X → tracks rotación
+        right_y.data = msg->axes[4]; // Right joystick Y → flipper delantero
+        right_x.data = msg->axes[3]; // Right joystick X → flipper trasero
 
-        yLeftAxis->publish(ly);
-        xLeftAxis->publish(lx);
-        yRightAxis->publish(ry);
-        xRightAxis->publish(rx);
+        pub_left_y_->publish(left_y);
+        pub_left_x_->publish(left_x);
+        pub_right_y_->publish(right_y);
+        pub_right_x_->publish(right_x);
     }
 
-    rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr subscriber__;
-    
-    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr yLeftAxis;
-    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr xLeftAxis;
-    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr yRightAxis;
-    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr xRightAxis;
+    rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_sub_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_left_y_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_left_x_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_right_y_;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr pub_right_x_;
 };
 
-int main(int argc, char * argv[]){
-  rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<Joystick_Listener>());
-  rclcpp::shutdown();
-  return 0;
+int main(int argc, char * argv[]) {
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<JoystickListener>());
+    rclcpp::shutdown();
+    return 0;
 }

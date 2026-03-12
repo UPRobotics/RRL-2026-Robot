@@ -13,6 +13,15 @@
 
 using json = nlohmann::json;
 
+// Telemetría: BEST_EFFORT evita colas de retransmisión que congestionan WiFi
+static const rclcpp::QoS TELEM_QOS = rclcpp::QoS(rclcpp::KeepLast(5))
+    .best_effort()
+    .durability_volatile();
+
+// Config: RELIABLE (debe llegar, no es tiempo real)
+static const rclcpp::QoS CONFIG_QOS = rclcpp::QoS(rclcpp::KeepLast(10))
+    .reliable();
+
 class Telemetry_publisher : public rclcpp::Node{
     public:
     Telemetry_publisher() : Node("telemetry_node"){
@@ -29,12 +38,12 @@ class Telemetry_publisher : public rclcpp::Node{
             "/telemetryJSON/arm_max_rpm", 10
         );
 
-        // Config: relay from ground station UI → robot
+        // Config: relay from ground station UI → robot (RELIABLE)
         robotConfigPub_ = create_publisher<robot_msgs::msg::MotorConfig>(
-            "/robot_config/update", 10
+            "/robot_config/update", CONFIG_QOS
         );
         groundStationConfigSub_ = create_subscription<robot_msgs::msg::MotorConfig>(
-            "/ground_station/motor_config", 10,
+            "/ground_station/motor_config", CONFIG_QOS,
             [this](const robot_msgs::msg::MotorConfig::SharedPtr msg) {
                 robotConfigPub_->publish(*msg);
                 RCLCPP_INFO(this->get_logger(),
@@ -47,45 +56,45 @@ class Telemetry_publisher : public rclcpp::Node{
 
         // Subscribers for arm telemetry
         armHipTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/arm_hip/telemetry", 10,
+            "/arm_hip/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::armHipTelemetryCallback, this, std::placeholders::_1)
         );
         armShoulderTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/arm_shoulder/telemetry", 10,
+            "/arm_shoulder/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::armShoulderTelemetryCallback, this, std::placeholders::_1)
         );
         armElbowTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/arm_elbow/telemetry", 10,
+            "/arm_elbow/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::armElbowTelemetryCallback, this, std::placeholders::_1)
         );
         armRollTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/arm_roll/telemetry", 10,
+            "/arm_roll/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::armRollTelemetryCallback, this, std::placeholders::_1)
         );
         armPitchTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/arm_pitch/telemetry", 10,
+            "/arm_pitch/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::armPitchTelemetryCallback, this, std::placeholders::_1)
         );
         armClawTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/arm_claw/telemetry", 10,
+            "/arm_claw/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::armClawTelemetryCallback, this, std::placeholders::_1)
         );
 
         // Subscribers for body telemetry
         bodyLeftTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/body_left/telemetry", 10,
+            "/body_left/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::bodyLeftTelemetryCallback, this, std::placeholders::_1)
         );
         bodyRightTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/body_right/telemetry", 10,
+            "/body_right/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::bodyRightTelemetryCallback, this, std::placeholders::_1)
         );
         bodyLeftFlipperTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/body_left_flipper/telemetry", 10,
+            "/body_left_flipper/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::bodyLeftFlipperTelemetryCallback, this, std::placeholders::_1)
         );
         bodyRightFlipperTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
-            "/body_right_flipper/telemetry", 10,
+            "/body_right_flipper/telemetry", TELEM_QOS,
             std::bind(&Telemetry_publisher::bodyRightFlipperTelemetryCallback, this, std::placeholders::_1)
         );
     }

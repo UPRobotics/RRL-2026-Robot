@@ -1,14 +1,30 @@
 #include "rclcpp/rclcpp.hpp"
+#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "robot_pkg/VESC.hpp"
-#include "std_msgs/msg/float32.hpp" 
-#include "robot_msgs/msg/motor_telemetry.hpp" 
+#include "robot_pkg/json.hpp"
+#include "robot_msgs/msg/motor_config.hpp"
+#include "robot_msgs/msg/motor_telemetry.hpp"
+#include "std_msgs/msg/float32.hpp"
+#include <algorithm>
 #include <chrono>
 #include <functional>
+#include <fstream>
+#include <mutex>
 
-using namespace std;
 using namespace std::chrono_literals;
 
+// QoS para control en tiempo real: sin retransmisión, siempre el dato más reciente
+static const rclcpp::QoS CONTROL_QOS = rclcpp::QoS(rclcpp::KeepLast(1))
+    .best_effort()
+    .durability_volatile();
+
+// QoS para telemetría: también sin retransmisión pero con algo de buffer
+static const rclcpp::QoS TELEM_QOS = rclcpp::QoS(rclcpp::KeepLast(5))
+    .best_effort()
+    .durability_volatile();
+
 struct MotorSettings {
+    uint8_t vesc_id          = 0;
     float   rpm_limit        = 5000.0f;
     float   duty_cycle_limit = 1.0f;
     uint8_t control_mode     = 0;
@@ -72,51 +88,63 @@ class BodyNode : public rclcpp::Node{
                         onConfigUpdate(msg);
                     });
 
-                callback_group_left_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive); 
-                callback_group_right_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-                callback_group_left_flipper_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-                callback_group_right_flipper_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+                // Joystick: BEST_EFFORT para mínima latencia
+                sub_left_y_ = create_subscription<std_msgs::msg::Float32>(
+                    "/joystick/left_y", CONTROL_QOS,
+                    [this](const std_msgs::msg::Float32::SharedPtr msg) {
+                        joystick_left_y = msg->data;
+                    });
 
-                timer_left_ = this->create_wall_timer(
-                    20ms, bind(&BodyNode::driveLeft, this), callback_group_left_);
-                    
-                timer_right_ = this->create_wall_timer(
-                    20ms, bind(&BodyNode::driveRight, this), callback_group_right_);
+                sub_left_x_ = create_subscription<std_msgs::msg::Float32>(
+                    "/joystick/left_x", CONTROL_QOS,
+                    [this](const std_msgs::msg::Float32::SharedPtr msg) {
+                        joystick_left_x = msg->data;
+                    });
 
-                timer_left_flipper_ = this->create_wall_timer(
-                    20ms, bind(&BodyNode::driveLeftFlipper, this), callback_group_left_flipper_);
-                    
-                timer_right_flipper_ = this->create_wall_timer(
-                    20ms, bind(&BodyNode::driveRightFlipper, this), callback_group_right_flipper_);
-                
-                y_left_Axis_subscriber = create_subscription<std_msgs::msg::Float32>(
-                "/arm/y_left_axis", 10,
-                [this](const std_msgs::msg::Float32::SharedPtr msg) {
-                    this->joystick_left_y = msg->data;
-                });
+                sub_right_y_ = create_subscription<std_msgs::msg::Float32>(
+                    "/joystick/right_y", CONTROL_QOS,
+                    [this](const std_msgs::msg::Float32::SharedPtr msg) {
+                        joystick_right_y = msg->data;  // flipper delantero
+                    });
 
-                flipper_axis_subscriber = create_subscription<std_msgs::msg::Float32>(
-                "/arm/flipper_axis", 10,
-                [this](const std_msgs::msg::Float32::SharedPtr msg) {
-                    this->joystick_flipper = msg->data;
-                });
+                sub_right_x_ = create_subscription<std_msgs::msg::Float32>(
+                    "/joystick/right_x", CONTROL_QOS,
+                    [this](const std_msgs::msg::Float32::SharedPtr msg) {
+                        joystick_right_x = msg->data;  // flipper trasero
+                    });
 
 
             left_full_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/body_left/telemetry", 10);
+            "/body_left/telemetry", TELEM_QOS);
             right_full_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/body_right/telemetry", 10);
+            "/body_right/telemetry", TELEM_QOS);
 
             left_flipper_full_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/body_left_flipper/telemetry", 10);
+            "/body_left_flipper/telemetry", TELEM_QOS);
             right_flipper_full_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/body_right_flipper/telemetry", 10);
+            "/body_right_flipper/telemetry", TELEM_QOS);
+
+            // Drive timers (con callback groups para ejecución paralela)
+            callback_group_left_          = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+            callback_group_right_         = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+            callback_group_left_flipper_  = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+            callback_group_right_flipper_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+            timer_left_ = create_wall_timer(
+                10ms, bind(&BodyNode::driveLeft, this), callback_group_left_);
+            timer_right_ = create_wall_timer(
+                10ms, bind(&BodyNode::driveRight, this), callback_group_right_);
+            timer_left_flipper_ = create_wall_timer(
+                10ms, bind(&BodyNode::driveFrontFlipper, this), callback_group_left_flipper_);
+            timer_right_flipper_ = create_wall_timer(
+                10ms, bind(&BodyNode::driveRearFlipper, this), callback_group_right_flipper_);
 
             // setup telemetry timer
             callback_group_telemetry_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
             telemetry_timer_ = this->create_wall_timer(
                 50ms, bind(&BodyNode::telemetry, this), callback_group_telemetry_);
             }
+
         ~BodyNode() {
             leftMotor.disconnect();
             rightMotor.disconnect();
@@ -135,7 +163,9 @@ class BodyNode : public rclcpp::Node{
         }
         float lim; bool inv;
         { std::lock_guard<std::mutex> lk(settings_mutex_); lim = left_.rpm_limit; inv = left_.inverted; }
-        leftMotor.set_rpm(static_cast<int32_t>(joystick_left_y * lim * (inv ? -1.0f : 1.0f)));
+        // Diferencial tipo tanque: left = Y + X
+        float cmd = std::clamp(joystick_left_y + joystick_left_x, -1.0f, 1.0f);
+        leftMotor.set_rpm(static_cast<int32_t>(cmd * lim * (inv ? -1.0f : 1.0f)));
     }
 
     void driveRight(){
@@ -146,29 +176,33 @@ class BodyNode : public rclcpp::Node{
         }
         float lim; bool inv;
         { std::lock_guard<std::mutex> lk(settings_mutex_); lim = right_.rpm_limit; inv = right_.inverted; }
-        rightMotor.set_rpm(static_cast<int32_t>(joystick_left_y * lim * (inv ? -1.0f : 1.0f)));
+        // Diferencial tipo tanque: right = Y - X
+        float cmd = std::clamp(joystick_left_y - joystick_left_x, -1.0f, 1.0f);
+        rightMotor.set_rpm(static_cast<int32_t>(cmd * lim * (inv ? -1.0f : 1.0f)));
     }
 
-    void driveLeftFlipper(){
+    void driveFrontFlipper(){   // flipper delantero ← right joystick Y
         if (!leftFlipperMotor.isConnected()) {
-            RCLCPP_WARN(get_logger(), "Left flipper disconnected, reconnecting...");
+            RCLCPP_WARN(get_logger(), "Front flipper disconnected, reconnecting...");
             leftFlipperMotor.autoConnect();
             return;
         }
         float lim; bool inv;
         { std::lock_guard<std::mutex> lk(settings_mutex_); lim = left_flipper_.rpm_limit; inv = left_flipper_.inverted; }
-        leftFlipperMotor.set_rpm(static_cast<int32_t>(joystick_flipper * lim * (inv ? -1.0f : 1.0f)));
+        float cmd = std::clamp(joystick_right_y, -1.0f, 1.0f);
+        leftFlipperMotor.set_rpm(static_cast<int32_t>(cmd * lim * (inv ? -1.0f : 1.0f)));
     }
 
-    void driveRightFlipper(){
+    void driveRearFlipper(){    // flipper trasero ← right joystick X
         if (!rightFlipperMotor.isConnected()) {
-            RCLCPP_WARN(get_logger(), "Right flipper disconnected, reconnecting...");
+            RCLCPP_WARN(get_logger(), "Rear flipper disconnected, reconnecting...");
             rightFlipperMotor.autoConnect();
             return;
         }
         float lim; bool inv;
         { std::lock_guard<std::mutex> lk(settings_mutex_); lim = right_flipper_.rpm_limit; inv = right_flipper_.inverted; }
-        rightFlipperMotor.set_rpm(static_cast<int32_t>(joystick_flipper * lim * (inv ? -1.0f : 1.0f)));
+        float cmd = std::clamp(joystick_right_x, -1.0f, 1.0f);
+        rightFlipperMotor.set_rpm(static_cast<int32_t>(cmd * lim * (inv ? -1.0f : 1.0f)));
     }
 
     void telemetry(){
@@ -238,6 +272,7 @@ class BodyNode : public rclcpp::Node{
             auto& motors = config_data_["motors"];
             auto read = [&](int idx, MotorSettings& s) {
                 if (idx < static_cast<int>(motors.size())) {
+                    s.vesc_id          = static_cast<uint8_t>(motors[idx].value("id",               static_cast<int>(s.vesc_id)));
                     s.rpm_limit        = motors[idx].value("rpm_limit",        s.rpm_limit);
                     s.duty_cycle_limit = motors[idx].value("duty_cycle_limit", s.duty_cycle_limit);
                     s.control_mode     = static_cast<uint8_t>(motors[idx].value("control_mode", static_cast<int>(s.control_mode)));
@@ -255,6 +290,7 @@ class BodyNode : public rclcpp::Node{
     void saveConfig() {
         try {
             auto apply = [&](int idx, const MotorSettings& s) {
+                config_data_["motors"][idx]["id"]               = static_cast<int>(s.vesc_id);
                 config_data_["motors"][idx]["rpm_limit"]        = s.rpm_limit;
                 config_data_["motors"][idx]["duty_cycle_limit"] = s.duty_cycle_limit;
                 config_data_["motors"][idx]["control_mode"]     = static_cast<int>(s.control_mode);
@@ -285,15 +321,16 @@ class BodyNode : public rclcpp::Node{
         }
         {
             std::lock_guard<std::mutex> lk(settings_mutex_);
+            t->vesc_id          = msg->motor_vesc_id;
             t->rpm_limit        = msg->rpm_limit;
             t->duty_cycle_limit = msg->duty_cycle_limit;
             t->control_mode     = msg->control_mode;
             t->inverted         = msg->inverted;
         }
         RCLCPP_INFO(get_logger(),
-            "Config update [%u] %s: rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s",
+            "Config update [%u] %s: vesc_id=%u  rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s",
             msg->config_index, msg->motor_name.c_str(),
-            msg->rpm_limit, msg->duty_cycle_limit, msg->control_mode,
+            msg->motor_vesc_id, msg->rpm_limit, msg->duty_cycle_limit, msg->control_mode,
             msg->inverted ? "yes" : "no");
         saveConfig();
     }
@@ -314,8 +351,10 @@ class BodyNode : public rclcpp::Node{
     rclcpp::TimerBase::SharedPtr timer_left_flipper_;
     rclcpp::TimerBase::SharedPtr timer_right_flipper_;
     
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr y_left_Axis_subscriber;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr flipper_axis_subscriber;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_left_y_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_left_x_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_right_y_;
+    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_right_x_;
     
     rclcpp::Publisher<robot_msgs::msg::MotorTelemetry>::SharedPtr left_full_telemetry_pub;
     rclcpp::Publisher<robot_msgs::msg::MotorTelemetry>::SharedPtr right_full_telemetry_pub;
@@ -326,8 +365,10 @@ class BodyNode : public rclcpp::Node{
     rclcpp::TimerBase::SharedPtr telemetry_timer_;
     rclcpp::CallbackGroup::SharedPtr callback_group_telemetry_;
 
-    float joystick_left_y = 0.0f;
-    float joystick_flipper = 0.0f;
+    float joystick_left_y  = 0.0f;
+    float joystick_left_x  = 0.0f;
+    float joystick_right_y = 0.0f;  // flipper delantero
+    float joystick_right_x = 0.0f;  // flipper trasero
 
     // ---- Config state ----
     std::string         config_path_;

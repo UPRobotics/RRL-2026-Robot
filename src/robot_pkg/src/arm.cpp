@@ -9,7 +9,6 @@
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/bool.hpp"
 #include "robot_pkg/VESC.hpp"
 #include "robot_pkg/json.hpp"
 #include "std_msgs/msg/float32.hpp"
@@ -19,7 +18,13 @@
 using namespace std::chrono_literals;
 using namespace LibSerial;
 
+// QoS para telemetría: BEST_EFFORT evita retransmisiones innecesarias
+static const rclcpp::QoS TELEM_QOS = rclcpp::QoS(rclcpp::KeepLast(5))
+    .best_effort()
+    .durability_volatile();
+
 struct MotorSettings {
+    uint8_t vesc_id          = 0;
     float   rpm_limit        = 5000.0f;
     float   duty_cycle_limit = 1.0f;
     uint8_t control_mode     = 0;    // 0 = RPM mode, 1 = duty cycle mode
@@ -132,32 +137,21 @@ ArmNode() : Node("arm_node"),
         timer_claw_ = this->create_wall_timer(
             20ms, bind(&ArmNode::setClawRPM, this), callback_group_claw_);
         
-        y_left_axis_subscriber = create_subscription<std_msgs::msg::Float32>(
-            "/y_left_axis", 10,
-            [this](const std_msgs::msg::Float32::SharedPtr msg)
-            {
-                this->desired_rpms = msg->data;
-            });
-
-        max_rpm_subscriber = create_subscription<std_msgs::msg::Float32>(
-            "/telemetryJSON/arm_max_rpm", 10,
-            [this](const std_msgs::msg::Float32::SharedPtr msg)
-            {
-                this->logged_rpm = msg->data;
-            });
+        // TODO: Arm joystick axis mapping pending user definition
+        // Use setHipTarget(), setShoulderTarget(), etc. to drive arm motors
 
         hip_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/arm_hip/telemetry", 10);
+            "/arm_hip/telemetry", TELEM_QOS);
         shoulder_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/arm_shoulder/telemetry", 10);
+            "/arm_shoulder/telemetry", TELEM_QOS);
         elbow_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/arm_elbow/telemetry", 10);
+            "/arm_elbow/telemetry", TELEM_QOS);
         roll_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/arm_roll/telemetry", 10);
+            "/arm_roll/telemetry", TELEM_QOS);
         pitch_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/arm_pitch/telemetry", 10);
+            "/arm_pitch/telemetry", TELEM_QOS);
         claw_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
-            "/arm_claw/telemetry", 10);
+            "/arm_claw/telemetry", TELEM_QOS);
 
         // setup telemetry timer
         callback_group_telemetry_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -310,6 +304,7 @@ private:
             auto& motors = config_data_["motors"];
             auto read = [&](int idx, MotorSettings& s) {
                 if (idx < static_cast<int>(motors.size())) {
+                    s.vesc_id          = static_cast<uint8_t>(motors[idx].value("id",               static_cast<int>(s.vesc_id)));
                     s.rpm_limit        = motors[idx].value("rpm_limit",        s.rpm_limit);
                     s.duty_cycle_limit = motors[idx].value("duty_cycle_limit", s.duty_cycle_limit);
                     s.control_mode     = static_cast<uint8_t>(motors[idx].value("control_mode", static_cast<int>(s.control_mode)));
@@ -328,6 +323,7 @@ private:
     void saveConfig() {
         try {
             auto apply = [&](int idx, const MotorSettings& s) {
+                config_data_["motors"][idx]["id"]               = static_cast<int>(s.vesc_id);
                 config_data_["motors"][idx]["rpm_limit"]        = s.rpm_limit;
                 config_data_["motors"][idx]["duty_cycle_limit"] = s.duty_cycle_limit;
                 config_data_["motors"][idx]["control_mode"]     = static_cast<int>(s.control_mode);
@@ -362,15 +358,16 @@ private:
         }
         {
             std::lock_guard<std::mutex> lk(settings_mutex_);
+            t->vesc_id          = msg->motor_vesc_id;
             t->rpm_limit        = msg->rpm_limit;
             t->duty_cycle_limit = msg->duty_cycle_limit;
             t->control_mode     = msg->control_mode;
             t->inverted         = msg->inverted;
         }
         RCLCPP_INFO(get_logger(),
-            "Config update [%u] %s: rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s",
+            "Config update [%u] %s: vesc_id=%u  rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s",
             msg->config_index, msg->motor_name.c_str(),
-            msg->rpm_limit, msg->duty_cycle_limit, msg->control_mode,
+            msg->motor_vesc_id, msg->rpm_limit, msg->duty_cycle_limit, msg->control_mode,
             msg->inverted ? "yes" : "no");
         saveConfig();
     }
@@ -416,14 +413,6 @@ private:
     rclcpp::CallbackGroup::SharedPtr callback_group_telemetry_;
 
         /* Publishers and subscribers */
-
-    // rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr button_A_subscriber;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr y_left_axis_subscriber;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr max_rpm_subscriber;
-
-    /* A button test*/
-    float desired_rpms = 0.0f;
-    float logged_rpm = 0.0f;
 
     // ---- Config state ----
     std::string         config_path_;
