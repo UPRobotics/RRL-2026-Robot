@@ -17,6 +17,8 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    window.setRosNode(node);
+
     while (rclcpp::ok() && window.isRunning()) {
         rclcpp::spin_some(node);
         window.spinOnce();

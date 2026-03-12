@@ -11,6 +11,7 @@
 
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
+  <depend>robot_msgs</depend>
 
   <build_depend>libsdl2-dev</build_depend>
   <build_depend>libsdl2-ttf-dev</build_depend>

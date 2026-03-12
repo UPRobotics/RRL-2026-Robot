@@ -14,6 +14,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(robot_msgs REQUIRED)
 
 # -------------------------------------------------------
 # System deps via pkg-config
@@ -51,6 +52,7 @@ target_link_libraries(telemetry_ui_node
 ament_target_dependencies(telemetry_ui_node
   rclcpp
   std_msgs
+  robot_msgs
 )
 
 # -------------------------------------------------------
