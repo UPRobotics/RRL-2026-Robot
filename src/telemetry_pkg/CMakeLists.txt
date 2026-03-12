@@ -20,6 +20,7 @@ set(COMMON_INCLUDES
   /usr/include
 )
 find_package(ament_index_cpp REQUIRED)
+find_package(robot_msgs REQUIRED)
 # Common ROS/External deps
 set(COMMON_DEPS
   rclcpp
@@ -27,6 +28,7 @@ set(COMMON_DEPS
   geometry_msgs
   sensor_msgs
   ament_index_cpp
+  robot_msgs
 )
 
 # ---------- TELEMETRY NODE ----------

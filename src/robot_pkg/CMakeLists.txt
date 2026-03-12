@@ -12,6 +12,8 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(robot_msgs REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # Common include dirs
 set(COMMON_INCLUDES
@@ -26,6 +28,8 @@ set(COMMON_DEPS
   std_msgs
   geometry_msgs
   sensor_msgs
+  robot_msgs
+  ament_index_cpp
 )
 
 # ---------- ARM NODE ----------
@@ -40,6 +44,14 @@ target_link_libraries(arm_node serial)
 
 install(TARGETS arm_node
   DESTINATION lib/${PROJECT_NAME}
+)
+
+install(DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
+)
+
+install(DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
 )
 
 # ---------- BODY NODE ----------

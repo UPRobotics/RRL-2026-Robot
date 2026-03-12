@@ -3,7 +3,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/float32.hpp"
 #include "std_msgs/msg/bool.hpp"
-#include "std_msgs/msg/float32_multi_array.hpp"
+#include "robot_msgs/msg/motor_config.hpp"
+#include "robot_msgs/msg/motor_telemetry.hpp"
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <functional>
 #include <fstream>
@@ -28,46 +29,62 @@ class Telemetry_publisher : public rclcpp::Node{
             "/telemetryJSON/arm_max_rpm", 10
         );
 
+        // Config: relay from ground station UI → robot
+        robotConfigPub_ = create_publisher<robot_msgs::msg::MotorConfig>(
+            "/robot_config/update", 10
+        );
+        groundStationConfigSub_ = create_subscription<robot_msgs::msg::MotorConfig>(
+            "/ground_station/motor_config", 10,
+            [this](const robot_msgs::msg::MotorConfig::SharedPtr msg) {
+                robotConfigPub_->publish(*msg);
+                RCLCPP_INFO(this->get_logger(),
+                    "Relaying config update for motor [%u] %s: rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s",
+                    msg->config_index, msg->motor_name.c_str(),
+                    msg->rpm_limit, msg->duty_cycle_limit, msg->control_mode,
+                    msg->inverted ? "yes" : "no");
+            }
+        );
+
         // Subscribers for arm telemetry
-        armHipTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        armHipTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/arm_hip/telemetry", 10,
             std::bind(&Telemetry_publisher::armHipTelemetryCallback, this, std::placeholders::_1)
         );
-        armShoulderTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        armShoulderTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/arm_shoulder/telemetry", 10,
             std::bind(&Telemetry_publisher::armShoulderTelemetryCallback, this, std::placeholders::_1)
         );
-        armElbowTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        armElbowTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/arm_elbow/telemetry", 10,
             std::bind(&Telemetry_publisher::armElbowTelemetryCallback, this, std::placeholders::_1)
         );
-        armRollTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        armRollTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/arm_roll/telemetry", 10,
             std::bind(&Telemetry_publisher::armRollTelemetryCallback, this, std::placeholders::_1)
         );
-        armPitchTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        armPitchTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/arm_pitch/telemetry", 10,
             std::bind(&Telemetry_publisher::armPitchTelemetryCallback, this, std::placeholders::_1)
         );
-        armClawTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        armClawTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/arm_claw/telemetry", 10,
             std::bind(&Telemetry_publisher::armClawTelemetryCallback, this, std::placeholders::_1)
         );
 
         // Subscribers for body telemetry
-        bodyLeftTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        bodyLeftTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/body_left/telemetry", 10,
             std::bind(&Telemetry_publisher::bodyLeftTelemetryCallback, this, std::placeholders::_1)
         );
-        bodyRightTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        bodyRightTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/body_right/telemetry", 10,
             std::bind(&Telemetry_publisher::bodyRightTelemetryCallback, this, std::placeholders::_1)
         );
-        bodyLeftFlipperTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        bodyLeftFlipperTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/body_left_flipper/telemetry", 10,
             std::bind(&Telemetry_publisher::bodyLeftFlipperTelemetryCallback, this, std::placeholders::_1)
         );
-        bodyRightFlipperTelemSub = create_subscription<std_msgs::msg::Float32MultiArray>(
+        bodyRightFlipperTelemSub = create_subscription<robot_msgs::msg::MotorTelemetry>(
             "/body_right_flipper/telemetry", 10,
             std::bind(&Telemetry_publisher::bodyRightFlipperTelemetryCallback, this, std::placeholders::_1)
         );
@@ -83,132 +100,94 @@ class Telemetry_publisher : public rclcpp::Node{
     }
 
     // callbacks for arm telemetry topics
-    void armHipTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received arm_hip telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "arm_hip values: %s", oss.str().c_str());
-        }
+    void armHipTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
-    void armShoulderTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received arm_shoulder telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "arm_shoulder values: %s", oss.str().c_str());
-        }
+    void armShoulderTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
-    void armElbowTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received arm_elbow telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "arm_elbow values: %s", oss.str().c_str());
-        }
+    void armElbowTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
-    void armRollTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received arm_roll telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "arm_roll values: %s", oss.str().c_str());
-        }
+    void armRollTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
-    void armPitchTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received arm_pitch telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "arm_pitch values: %s", oss.str().c_str());
-        }
+    void armPitchTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
-    void armClawTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received arm_claw telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "arm_claw values: %s", oss.str().c_str());
-        }
+    void armClawTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
 
     // callbacks for body telemetry topics
-    void bodyLeftTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received body_left telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "body_left values: %s", oss.str().c_str());
-        }
+    void bodyLeftTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
-    void bodyRightTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received body_right telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "body_right values: %s", oss.str().c_str());
-        }
+    void bodyRightTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
-    void bodyLeftFlipperTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received body_left_flipper telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "body_left_flipper values: %s", oss.str().c_str());
-        }
+    void bodyLeftFlipperTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
-    void bodyRightFlipperTelemetryCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg){
-        RCLCPP_INFO(this->get_logger(), "Received body_right_flipper telemetry (%zu entries)", msg->data.size());
-        if(!msg->data.empty()){
-            std::ostringstream oss;
-            for(size_t i=0;i<msg->data.size();++i){
-                oss << msg->data[i];
-                if(i+1<msg->data.size()) oss << ", ";
-            }
-            RCLCPP_INFO(this->get_logger(), "body_right_flipper values: %s", oss.str().c_str());
-        }
+    void bodyRightFlipperTelemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg){
+        RCLCPP_INFO(this->get_logger(),
+            "[%s] id=%u  rpm=%d  duty=%.3f  voltage=%.1fV  mode=%u  inverted=%s",
+            msg->motor_name.c_str(), msg->motor_id, msg->rpm,
+            msg->duty_cycle, msg->voltage, msg->control_mode,
+            msg->inverted ? "true" : "false");
     }
 
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr armMaxRpm;
+    rclcpp::Publisher<robot_msgs::msg::MotorConfig>::SharedPtr robotConfigPub_;
+    rclcpp::Subscription<robot_msgs::msg::MotorConfig>::SharedPtr groundStationConfigSub_;
     // arm telemetry subscriptions
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armHipTelemSub;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armShoulderTelemSub;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armElbowTelemSub;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armRollTelemSub;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armPitchTelemSub;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr armClawTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr armHipTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr armShoulderTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr armElbowTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr armRollTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr armPitchTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr armClawTelemSub;
     // body telemetry subscriptions
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr bodyLeftTelemSub;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr bodyRightTelemSub;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr bodyLeftFlipperTelemSub;
-    rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr bodyRightFlipperTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr bodyLeftTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr bodyRightTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr bodyLeftFlipperTelemSub;
+    rclcpp::Subscription<robot_msgs::msg::MotorTelemetry>::SharedPtr bodyRightFlipperTelemSub;
     json data;
 
     rclcpp::TimerBase::SharedPtr timer_;
