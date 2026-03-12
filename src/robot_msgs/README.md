@@ -41,16 +41,16 @@ Parámetros **enviados por el operador** para modificar el comportamiento del ro
 Son dos mensajes porque hacen cosas **opuestas en direcciones opuestas**:
 
 ```
-VESC ──► arm_node/body_node ──► MotorTelemetry ──► telemetry_node ──► Operador
+VESC ──► arm_node/body_node ──► MotorTelemetry ──► telemetry_node ──► JSON agregado ──► telemetry_ui
                                   (lo que ES)
 
-Operador ──► telemetry_node ──► MotorConfig ──► arm_node/body_node ──► config.json
+telemetry_ui ──► MotorConfig ──► telemetry_node ──► MotorConfig ──► arm_node/body_node ──► config.json
                                   (lo que DEBE SER)
 ```
 
 `MotorTelemetry` son **lecturas de sensor**: el robot reporta lo que el hardware está midiendo en ese instante. Son de solo lectura y se publican cada 50 ms automáticamente.
 
-`MotorConfig` son **comandos de configuración**: el operador decide cambiar un límite de RPM o de duty cycle, y el robot lo aplica en RAM y lo persiste en disco.
+`MotorConfig` son **comandos de configuración**: el operador decide cambiar un límite de RPM o de duty cycle desde la UI, y el robot lo aplica en RAM y lo persiste en disco.
 
 Si fueran el mismo mensaje, cualquier publicación de telemetría podría sobrescribir accidentalmente los parámetros de configuración, o un cambio de config podría interpretarse como una lectura del sensor.
 
@@ -58,7 +58,7 @@ Si fueran el mismo mensaje, cualquier publicación de telemetría podría sobres
 
 ## Pipeline completo
 
-### Telemetría (Robot → Estación)
+### Telemetría (Robot → Estación → UI)
 
 ```
 VESC (serial)
@@ -66,6 +66,7 @@ VESC (serial)
     ▼
 arm_node / body_node
     │  publica robot_msgs/MotorTelemetry
+    │  (solo los motores conectados publican)
     ▼
 /arm_hip/telemetry
 /arm_shoulder/telemetry
@@ -80,22 +81,59 @@ arm_node / body_node
     │
     ▼
 telemetry_node  (estación)
-    │  RCLCPP_INFO → log en pantalla con todos los campos
+    │  agrega SOLO los motores que han enviado datos
+    │  serializa a JSON con todos los campos + config_index
+    │  publica std_msgs/String cada 20ms
+    ▼
+/telemetry/aggregated   (QoS: BEST_EFFORT, KeepLast 5)
+    │
+    ▼
+telemetry_ui_node  (estación)
+    │  parsea JSON
+    │  muestra grid dinámico (solo motores activos)
+    │  sidebar con voltaje y potencia estimada
+    └── panel de edición de configuración por motor
 ```
 
-### Configuración (Estación → Robot → Disco)
+**Formato JSON de `/telemetry/aggregated`:**
+
+```json
+{
+  "timestamp_ms": 1710000000000,
+  "motors": [
+    {
+      "config_index": 1,
+      "motor_id": 1,
+      "motor_name": "Track Izquierdo",
+      "rpm": 1500,
+      "duty_cycle": 0.45,
+      "voltage": 24.1,
+      "control_mode": 0,
+      "inverted": false
+    }
+  ]
+}
+```
+
+> El arreglo `motors` solo contiene los motores que han enviado telemetría.
+> Si solo hay 2 motores conectados, el JSON contiene 2 entradas y la UI muestra 2 tarjetas.
+
+---
+
+### Configuración (UI → Estación → Robot → Disco)
 
 ```
-Operador (ros2 topic pub / rqt / UI)
+telemetry_ui_node  (panel de edición en la UI)
+    │  operador ajusta rpm_limit, duty_cycle_limit, control_mode, inverted
     │  publica robot_msgs/MotorConfig
     ▼
-/ground_station/motor_config
+/ground_station/motor_config   (QoS: RELIABLE, KeepLast 10)
     │
     ▼
 telemetry_node  (estación)
     │  re-publica sin modificar
     ▼
-/robot_config/update
+/robot_config/update   (QoS: RELIABLE, KeepLast 10)
     │
     ├──► arm_node   (índices 4–9: Cadera, Hombro, Codo, Roll, Pitch, Grip)
     └──► body_node  (índices 0–3: Flipper Trasero, Track Izq, Track Der, Flipper Delantero)
@@ -103,6 +141,8 @@ telemetry_node  (estación)
               ├── actualiza MotorSettings en RAM (protegido por mutex)
               └── escribe robot_pkg/config/config.json en disco
 ```
+
+---
 
 ### `config_index` — mapeo de motores
 
@@ -121,6 +161,19 @@ telemetry_node  (estación)
 
 Cada nodo ignora silenciosamente (`default: return`) los mensajes con índices que no le corresponden.
 
+> **Nota:** El sistema es dinámico — no todos los motores necesitan estar conectados.
+> `telemetry_node` solo agrega los motores que han enviado datos, y `telemetry_ui_node`
+> adapta su grid automáticamente al número de motores activos.
+
+---
+
+## QoS
+
+| Flujo | QoS | Razón |
+|---|---|---|
+| Telemetría (`MotorTelemetry`, `/telemetry/aggregated`) | BEST_EFFORT, KeepLast(5) | Minimiza congestión WiFi; datos recientes importan más que completitud |
+| Configuración (`MotorConfig`) | RELIABLE, KeepLast(10) | Los cambios de config deben llegar; no son tiempo real |
+
 ---
 
 ## Ejemplo de uso
@@ -133,3 +186,9 @@ ros2 topic pub --once /ground_station/motor_config robot_msgs/msg/MotorConfig \
 ```
 
 El cambio se aplica inmediatamente en `body_node` y se guarda en `config.json` para que persista al siguiente arranque.
+
+Verificar telemetría agregada:
+
+```bash
+ros2 topic echo /telemetry/aggregated
+```
