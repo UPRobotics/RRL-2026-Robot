@@ -70,6 +70,18 @@ install(TARGETS body_node
 
 
 
+# ---------- MOTOR SIMULATOR ----------
+add_executable(motor_sim_node
+  src/motor_sim.cpp
+)
+
+target_include_directories(motor_sim_node PUBLIC ${COMMON_INCLUDES})
+ament_target_dependencies(motor_sim_node rclcpp robot_msgs)
+
+install(TARGETS motor_sim_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # ---------- LINT ----------
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

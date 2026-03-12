@@ -33,6 +33,9 @@ namespace Colors {
     constexpr SDL_Color ACCENT_BLUE = {70,  130, 180, 255};
     constexpr SDL_Color BUTTON_BG   = {55,  55,  60,  255};
     constexpr SDL_Color BUTTON_HOV  = {70,  70,  80,  255};
+    constexpr SDL_Color TEXT_DARK   = {20,  20,  25,  255};  // for text on bright backgrounds
+    constexpr SDL_Color TEXTBOX_BG  = {60,  60,  65,  255};
+    constexpr SDL_Color TEXTBOX_FOCUS = {80, 80, 90, 255};
 }
 
 // -------------------------------------------------------
@@ -73,6 +76,8 @@ public:
 private:
     // Event & render
     void handleEvents();
+    void handleTextInput(const char* text);
+    void handleKeyDown(SDL_Keycode key);
     void render();
     void renderMainArea(int winW, int winH);
     void renderFooter(int winW, int winH);
@@ -106,6 +111,8 @@ private:
     bool pointInRect(int px, int py, int rx, int ry, int rw, int rh) const;
     void drawButton(int x, int y, int w, int h,
                     const std::string& label, SDL_Color bg, TTF_Font* fnt);
+    void drawTextBox(int x, int y, int w, int h,
+                     const std::string& text, bool focused, TTF_Font* fnt);
 
     // Window properties
     int           m_width;
@@ -117,18 +124,19 @@ private:
     SDL_Window*   m_window   = nullptr;
     SDL_Renderer* m_renderer = nullptr;
 
-    // Fonts
-    TTF_Font* m_font10 = nullptr;
+    // Fonts (bumped sizes for readability)
     TTF_Font* m_font12 = nullptr;
     TTF_Font* m_font14 = nullptr;
     TTF_Font* m_font16 = nullptr;
+    TTF_Font* m_font18 = nullptr;
+    TTF_Font* m_font22 = nullptr;
 
     // Layout constants
-    static constexpr int FOOTER_H    = 60;
+    static constexpr int FOOTER_H    = 70;
     static constexpr int STAT_PAD    = 15;
-    static constexpr int SIDEBAR_W   = 220;
-    static constexpr int EDIT_PANEL_H = 130;
-    static constexpr int CARD_PAD    = 6;
+    static constexpr int SIDEBAR_W   = 260;
+    static constexpr int EDIT_PANEL_H = 140;
+    static constexpr int CARD_PAD    = 8;
 
     // System telemetry thread
     std::thread        m_telemetryThread;
@@ -164,6 +172,14 @@ private:
     float   m_editDutyCycleLimit = 0.0f;
     uint8_t m_editControlMode    = 0;
     bool    m_editInverted       = false;
+
+    // Text input state for edit panel
+    enum FocusedField { FOCUS_NONE = 0, FOCUS_RPM, FOCUS_DUTY };
+    FocusedField m_focusedField = FOCUS_NONE;
+    std::string  m_rpmInputText;
+    std::string  m_dutyInputText;
+    struct TextBoxRect { int x, y, w, h; FocusedField field; };
+    std::vector<TextBoxRect> m_textBoxRects;
 
     // Cached layout rects for hit testing (updated each frame)
     struct CardRect { int x, y, w, h; int configIndex; };
