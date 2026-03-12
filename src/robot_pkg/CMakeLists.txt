@@ -12,6 +12,8 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(robot_msgs REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 # Common include dirs
 set(COMMON_INCLUDES
@@ -26,6 +28,8 @@ set(COMMON_DEPS
   std_msgs
   geometry_msgs
   sensor_msgs
+  robot_msgs
+  ament_index_cpp
 )
 
 # ---------- ARM NODE ----------
@@ -42,6 +46,14 @@ install(TARGETS arm_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(DIRECTORY launch/
+  DESTINATION share/${PROJECT_NAME}/launch
+)
+
+install(DIRECTORY config/
+  DESTINATION share/${PROJECT_NAME}/config
+)
+
 # ---------- BODY NODE ----------
 add_executable(body_node
   src/body.cpp
@@ -56,18 +68,19 @@ install(TARGETS body_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
-# ---------- JOYSTICK NODE ----------
-add_executable(joystick_node
-  src/JoyStickListener.cpp
+
+
+# ---------- MOTOR SIMULATOR ----------
+add_executable(motor_sim_node
+  src/motor_sim.cpp
 )
 
-target_include_directories(joystick_node PUBLIC ${COMMON_INCLUDES})
-ament_target_dependencies(joystick_node ${COMMON_DEPS})
+target_include_directories(motor_sim_node PUBLIC ${COMMON_INCLUDES})
+ament_target_dependencies(motor_sim_node rclcpp robot_msgs)
 
-install(TARGETS joystick_node
+install(TARGETS motor_sim_node
   DESTINATION lib/${PROJECT_NAME}
 )
-
 
 # ---------- LINT ----------
 if(BUILD_TESTING)

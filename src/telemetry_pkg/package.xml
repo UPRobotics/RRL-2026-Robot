@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>robot_pkg</name>
+  <name>telemetry_pkg</name>
   <version>0.0.0</version>
-  <description>Paquete de control de robot con VESC, brazo y cuerpo.</description>
+  <description>Package to visialize and modify telemetry values.</description>
   <maintainer email="robotica@todo.todo">robotica</maintainer>
   <license>Apache-2.0</license>
 
@@ -13,11 +13,8 @@
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
-  <depend>robot_msgs</depend>
   <depend>ament_index_cpp</depend>
-
-  <build_depend>libserial-dev</build_depend>
-  <exec_depend>libserial-dev</exec_depend>
+  <depend>robot_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
