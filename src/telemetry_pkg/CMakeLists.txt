@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(robot_pkg)
+project(telemetry_pkg)
 
 # Compiler warnings
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -19,48 +19,36 @@ set(COMMON_INCLUDES
   $<INSTALL_INTERFACE:include>
   /usr/include
 )
-
-# Common ROS deps
+find_package(ament_index_cpp REQUIRED)
+# Common ROS/External deps
 set(COMMON_DEPS
   rclcpp
   std_msgs
   geometry_msgs
   sensor_msgs
+  ament_index_cpp
 )
 
-# ---------- ARM NODE ----------
-add_executable(arm_node
-  src/arm.cpp
-  src/VESC.cpp
+# ---------- TELEMETRY NODE ----------
+add_executable(telemetry_node
+  src/Telemetry.cpp
 )
 
-target_include_directories(arm_node PUBLIC ${COMMON_INCLUDES})
-ament_target_dependencies(arm_node ${COMMON_DEPS})
-target_link_libraries(arm_node serial)
-
-install(TARGETS arm_node
+target_include_directories(telemetry_node PUBLIC ${COMMON_INCLUDES})
+ament_target_dependencies(telemetry_node ${COMMON_DEPS})
+install(TARGETS
+  telemetry_node
   DESTINATION lib/${PROJECT_NAME}
 )
-
-# ---------- BODY NODE ----------
-add_executable(body_node
-  src/body.cpp
-  src/VESC.cpp
+install(DIRECTORY include/telemetry_pkg/
+  DESTINATION share/${PROJECT_NAME}/config
+  FILES_MATCHING PATTERN "*.json"
 )
-
-target_include_directories(body_node PUBLIC ${COMMON_INCLUDES})
-ament_target_dependencies(body_node ${COMMON_DEPS})
-target_link_libraries(body_node serial)
-
-install(TARGETS body_node
-  DESTINATION lib/${PROJECT_NAME}
-)
-
-
 
 # ---------- LINT ----------
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
+  # Skipping specific lints if they are too strict for your json setup
   set(ament_cmake_copyright_FOUND TRUE)
   set(ament_cmake_cpplint_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()

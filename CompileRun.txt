@@ -26,3 +26,5 @@ This one for the joystick inputs
 
 source /opt/ros/humble/setup.bash
 ros2 run joy joy_node
+
+sudo apt install libserial-dev

@@ -14,34 +14,45 @@ class Joystick_Listener : public rclcpp::Node{
             "/joy",10,
             std::bind(&Joystick_Listener::callback, this, std::placeholders::_1));
     
-    
         // Publishers  
         yLeftAxis = create_publisher<std_msgs::msg::Float32>(
             "y_left_axis", 10
+        );
+
+        xLeftAxis = create_publisher<std_msgs::msg::Float32>(
+            "x_left_axis", 10
+        );
+
+        yRightAxis = create_publisher<std_msgs::msg::Float32>(
+            "y_right_axis", 10
+        );
+
+        xRightAxis = create_publisher<std_msgs::msg::Float32>(
+            "x_right_axis", 10
         );
     }
 
     private:
     void callback(sensor_msgs::msg::Joy::SharedPtr message){
-       float updownJoyState = message->axes[1];
+        std_msgs::msg::Float32 lx, ly, rx, ry;
 
-      RCLCPP_INFO(this->get_logger(),
-       "Recieved - A button : '%d', Joystick up : '%.2f'",
-       message->buttons[0],updownJoyState);
+        ly.data = message->axes[1]; // Left Y
+        lx.data = message->axes[0]; // Left X
+        ry.data = message->axes[4]; // Right Y
+        rx.data = message->axes[3]; // Right X
 
-       float buttonAState = message->buttons[0]; // a button
-        /*std_msgs::msg::Bool cmd;
-        cmd.data = buttonAState;*/
-
-        std_msgs::msg::Float32 yAxis;
-        yAxis.data = updownJoyState;
-        yLeftAxis->publish(yAxis);
+        yLeftAxis->publish(ly);
+        xLeftAxis->publish(lx);
+        yRightAxis->publish(ry);
+        xRightAxis->publish(rx);
     }
 
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr subscriber__;
-    //PUblisher of arm VAlues for logic
+    
     rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr yLeftAxis;
-
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr xLeftAxis;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr yRightAxis;
+    rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr xRightAxis;
 };
 
 int main(int argc, char * argv[]){
