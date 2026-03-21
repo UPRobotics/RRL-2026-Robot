@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <cerrno>
+#include <mutex>
 
 using namespace LibSerial;
 
@@ -10,10 +12,11 @@ VESC::VESC(uint8_t id, int baud, int to) : motor_id(id), baudrate(baud), timeout
       }
 
 VESC::~VESC() {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     disconnect();
     if (serial_port_) {
         try { serial_port_->Close(); } catch(...) {}
-        serial_port_.release();
+        serial_port_.reset();
     }
 }
 
@@ -28,6 +31,7 @@ void VESC::setupPort() {
 }
 
 bool VESC::connect() {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     try {
         if (serial_port_->IsOpen()) serial_port_->Close();
         serial_port_->Open(port_name);
@@ -42,6 +46,7 @@ bool VESC::connect() {
 }
 
 void VESC::disconnect() {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     running = false;
     if (!serial_port_) return;
     
@@ -54,6 +59,7 @@ void VESC::disconnect() {
 }
 
 bool VESC::isConnected(){
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     if (!running || !serial_port_)
         return false;
     try{
@@ -79,6 +85,7 @@ std::vector<std::string> scanPorts(){
 }
 
 bool VESC::autoConnect(){
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     auto ports = scanPorts();
 
     for(const auto& port: ports){
@@ -86,10 +93,23 @@ bool VESC::autoConnect(){
         try{
             if (serial_port_) {
                 try { serial_port_->Close(); } catch(...) {}
-                serial_port_.release();
+                serial_port_.reset();
             }
+
             serial_port_ = std::make_unique<SerialPort>();
-            serial_port_->Open(port);
+            RCLCPP_INFO(logger, "Opening port %s", port.c_str());
+            try {
+                serial_port_->Open(port);
+                RCLCPP_INFO(logger, "Opened port %s", port.c_str());
+            } catch (const std::exception &e) {
+                int err = errno;
+                RCLCPP_WARN(logger, "Open failed for %s: %s (errno=%d: %s)",
+                            port.c_str(), e.what(), err, strerror(err));
+                try { serial_port_->Close(); } catch(...) {}
+                serial_port_.reset();
+                continue;
+            }
+
             setupPort();
 
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -101,13 +121,12 @@ bool VESC::autoConnect(){
             } catch (const std::exception &e) {
                 RCLCPP_WARN(logger, "Flush failed for %s: %s - skipping port", port.c_str(), e.what());
                 try { serial_port_->Close(); } catch(...) {}
-                serial_port_.release();
+                serial_port_.reset();
                 continue;
             }
 
             VESCData data;
             running = true;
-
                 if (get_telemetry(data)) {
                     if (data.motor_controller_id == motor_id) {
                         port_name = port;
@@ -117,14 +136,14 @@ bool VESC::autoConnect(){
 
             running = false;
             try { serial_port_->Close(); } catch(...) {}
-            serial_port_.release();
+            serial_port_.reset();
 
         }
         catch(const std::exception& e){
             RCLCPP_INFO(logger, "Port %s failed: %s", port.c_str(), e.what());
             running = false;
             try { if(serial_port_) serial_port_->Close(); } catch(...) {}
-            serial_port_.release();
+            serial_port_.reset();
             continue;
         }
     }
@@ -133,6 +152,7 @@ bool VESC::autoConnect(){
 }
 
 void VESC::set_rpm(int32_t rpm) {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     if (!isConnected()) return;
 
     try{
@@ -152,6 +172,7 @@ void VESC::set_rpm(int32_t rpm) {
 }
 
 void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     if (!isConnected()) return;
 
     try{
@@ -216,6 +237,7 @@ std::vector<uint8_t> VESC::find_packet(const std::vector<uint8_t>& response){
 }
 
 void VESC::request_values() {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     if (!isConnected()) return;
 
     std::vector<uint8_t> payload;
@@ -225,6 +247,7 @@ void VESC::request_values() {
 
 std::vector<uint8_t> VESC::read_bytes() { // TODO: Main change, check if it works with this one
     std::vector<uint8_t> buffer;
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     if (!isConnected()) return buffer;
 
     try {
@@ -244,6 +267,7 @@ std::vector<uint8_t> VESC::read_bytes() { // TODO: Main change, check if it work
 }
 
 bool VESC::get_telemetry(VESCData& out) {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     request_values();
     if (!running) return false;
 

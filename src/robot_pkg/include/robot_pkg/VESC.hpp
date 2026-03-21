@@ -38,6 +38,7 @@ class VESC{
         int timeout;
         std::unique_ptr<LibSerial::SerialPort> serial_port_;
         bool running = false;
+        std::recursive_mutex port_mutex_;
         rclcpp::Logger logger;
         
         void setupPort();

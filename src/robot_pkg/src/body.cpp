@@ -64,21 +64,7 @@ class BodyNode : public rclcpp::Node{
                 } else{
                     RCLCPP_INFO(this->get_logger(), "Failed to connect to left motor");
                 }
-                if(rightMotor.autoConnect()){
-                    RCLCPP_INFO(this->get_logger(), "Right motor body connected.");
-                } else{
-                    RCLCPP_INFO(this->get_logger(), "Failed to connect to right motor");
-                }
-                if(leftFlipperMotor.autoConnect()){
-                    RCLCPP_INFO(this->get_logger(), "Left flipper motor connected.");
-                } else{
-                    RCLCPP_INFO(this->get_logger(), "Failed to connect to left flipper motor");
-                }
-                if(rightFlipperMotor.autoConnect()){
-                    RCLCPP_INFO(this->get_logger(), "Right flipper motor connected.");
-                } else{
-                    RCLCPP_INFO(this->get_logger(), "Failed to connect to right flipper motor");
-                }
+                
 
                 loadConfig();
 
@@ -170,8 +156,8 @@ class BodyNode : public rclcpp::Node{
 
     void driveRight(){
         if (!rightMotor.isConnected()) {
-            RCLCPP_WARN(get_logger(), "Right motor disconnected, reconnecting...");
-            rightMotor.autoConnect();
+        //    RCLCPP_WARN(get_logger(), "Right motor disconnected, reconnecting...");
+         //   rightMotor.autoConnect();
             return;
         }
         float lim; bool inv;
@@ -183,8 +169,8 @@ class BodyNode : public rclcpp::Node{
 
     void driveFrontFlipper(){   // flipper delantero ← right joystick Y
         if (!leftFlipperMotor.isConnected()) {
-            RCLCPP_WARN(get_logger(), "Front flipper disconnected, reconnecting...");
-            leftFlipperMotor.autoConnect();
+         //   RCLCPP_WARN(get_logger(), "Front flipper disconnected, reconnecting...");
+           // leftFlipperMotor.autoConnect();
             return;
         }
         float lim; bool inv;
@@ -195,8 +181,8 @@ class BodyNode : public rclcpp::Node{
 
     void driveRearFlipper(){    // flipper trasero ← right joystick X
         if (!rightFlipperMotor.isConnected()) {
-            RCLCPP_WARN(get_logger(), "Rear flipper disconnected, reconnecting...");
-            rightFlipperMotor.autoConnect();
+        //    RCLCPP_WARN(get_logger(), "Rear flipper disconnected, reconnecting...");
+            //rightFlipperMotor.autoConnect();
             return;
         }
         float lim; bool inv;
