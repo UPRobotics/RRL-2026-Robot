@@ -41,6 +41,10 @@ class VESC{
         bool running = false;
         std::recursive_mutex port_mutex_;
         rclcpp::Logger logger;
+
+        // Shared across all VESC instances — prevents two motors from scanning
+        // the same port simultaneously during autoConnect()
+        static std::mutex scan_mutex_;
         
         void setupPort();
         

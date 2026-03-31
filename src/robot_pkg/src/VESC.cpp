@@ -8,6 +8,8 @@
 
 using namespace LibSerial;
 
+std::mutex VESC::scan_mutex_;
+
 VESC::VESC(uint8_t id, int baud, int to) : motor_id(id), baudrate(baud), timeout(to),logger(rclcpp::get_logger("VESC")) {
         serial_port_ = std::make_unique<SerialPort>();
       }
@@ -91,6 +93,7 @@ void VESC::setId(uint8_t id) {
 }
 
 bool VESC::autoConnect(){
+    std::lock_guard<std::mutex> scan_lk(scan_mutex_);
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     auto ports = scanPorts();
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
