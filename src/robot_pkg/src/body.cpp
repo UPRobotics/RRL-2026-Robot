@@ -4,11 +4,12 @@
 #include "robot_pkg/json.hpp"
 #include "robot_msgs/msg/motor_config.hpp"
 #include "robot_msgs/msg/motor_telemetry.hpp"
-#include "std_msgs/msg/float32.hpp"
+#include "robot_msgs/msg/joystick_axes.hpp"
 #include <algorithm>
 #include <chrono>
 #include <functional>
 #include <fstream>
+#include <atomic>
 #include <mutex>
 
 using namespace std::chrono_literals;
@@ -33,11 +34,10 @@ struct MotorSettings {
 
 class BodyNode : public rclcpp::Node{
     public:
-        //TODO: For now placeholder values
-        int leftMotorId    = 1;
-        int rightMotorId   = 2;
-        int leftFlipperId  = 0;
-        int rightFlipperId = 3;
+        int leftMotorId    = 0;   // Track Izquierdo  VESC ID 0
+        int rightMotorId   = 1;   // Track Derecho    VESC ID 1
+        int leftFlipperId  = 2;   // Flipper Trasero  VESC ID 2
+        int rightFlipperId = 3;   // Flipper Delantero VESC ID 3
 
         BodyNode() : Node("body_node"),
             leftMotor(
@@ -59,14 +59,32 @@ class BodyNode : public rclcpp::Node{
                 declare_parameter<int>("right_flipper_timeout", 1000))
                 {
 
-                if(leftMotor.autoConnect()){
-                    RCLCPP_INFO(this->get_logger(), "Left motor body connected.");
-                } else{
-                    RCLCPP_INFO(this->get_logger(), "Failed to connect to left motor");
-                }
-                
-
                 loadConfig();
+                leftMotor.setId(left_.vesc_id);
+                rightMotor.setId(right_.vesc_id);
+                leftFlipperMotor.setId(left_flipper_.vesc_id);
+                rightFlipperMotor.setId(right_flipper_.vesc_id);
+
+                if(leftMotor.autoConnect()){
+                    RCLCPP_INFO(this->get_logger(), "Left motor connected.");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "Failed to connect to left motor.");
+                }
+                if(rightMotor.autoConnect()){
+                    RCLCPP_INFO(this->get_logger(), "Right motor connected.");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "Failed to connect to right motor.");
+                }
+                if(leftFlipperMotor.autoConnect()){
+                    RCLCPP_INFO(this->get_logger(), "Flipper Trasero connected.");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "Failed to connect to Flipper Trasero.");
+                }
+                if(rightFlipperMotor.autoConnect()){
+                    RCLCPP_INFO(this->get_logger(), "Flipper Delantero connected.");
+                } else {
+                    RCLCPP_ERROR(this->get_logger(), "Failed to connect to Flipper Delantero.");
+                }
 
                 config_update_sub_ = create_subscription<robot_msgs::msg::MotorConfig>(
                     "/robot_config/update", 10,
@@ -74,29 +92,14 @@ class BodyNode : public rclcpp::Node{
                         onConfigUpdate(msg);
                     });
 
-                // Joystick: BEST_EFFORT para mínima latencia
-                sub_left_y_ = create_subscription<std_msgs::msg::Float32>(
-                    "/joystick/left_y", CONTROL_QOS,
-                    [this](const std_msgs::msg::Float32::SharedPtr msg) {
-                        joystick_left_y = msg->data;
-                    });
-
-                sub_left_x_ = create_subscription<std_msgs::msg::Float32>(
-                    "/joystick/left_x", CONTROL_QOS,
-                    [this](const std_msgs::msg::Float32::SharedPtr msg) {
-                        joystick_left_x = msg->data;
-                    });
-
-                sub_right_y_ = create_subscription<std_msgs::msg::Float32>(
-                    "/joystick/right_y", CONTROL_QOS,
-                    [this](const std_msgs::msg::Float32::SharedPtr msg) {
-                        joystick_right_y = msg->data;  // flipper delantero
-                    });
-
-                sub_right_x_ = create_subscription<std_msgs::msg::Float32>(
-                    "/joystick/right_x", CONTROL_QOS,
-                    [this](const std_msgs::msg::Float32::SharedPtr msg) {
-                        joystick_right_x = msg->data;  // flipper trasero
+                // Joystick: single topic — all axes arrive together, no torn reads
+                sub_axes_ = create_subscription<robot_msgs::msg::JoystickAxes>(
+                    "/joystick/axes", CONTROL_QOS,
+                    [this](const robot_msgs::msg::JoystickAxes::SharedPtr msg) {
+                        joystick_left_y.store(msg->left_y,   std::memory_order_relaxed);
+                        joystick_left_x.store(msg->left_x,   std::memory_order_relaxed);
+                        joystick_right_y.store(msg->right_y, std::memory_order_relaxed); // flipper delantero
+                        joystick_right_x.store(msg->right_x, std::memory_order_relaxed); // flipper trasero
                     });
 
 
@@ -147,101 +150,153 @@ class BodyNode : public rclcpp::Node{
             leftMotor.autoConnect();
             return;
         }
-        float lim; bool inv;
-        { std::lock_guard<std::mutex> lk(settings_mutex_); lim = left_.rpm_limit; inv = left_.inverted; }
+        float rpm_lim, duty_lim; bool inv; uint8_t mode;
+        {
+            std::lock_guard<std::mutex> lk(settings_mutex_);
+            rpm_lim = left_.rpm_limit; duty_lim = left_.duty_cycle_limit;
+            inv = left_.inverted; mode = left_.control_mode;
+        }
         // Diferencial tipo tanque: left = Y + X
-        float cmd = std::clamp(joystick_left_y + joystick_left_x, -1.0f, 1.0f);
-        leftMotor.set_rpm(static_cast<int32_t>(cmd * lim * (inv ? -1.0f : 1.0f)));
+        float cmd = std::clamp(joystick_left_y.load(std::memory_order_relaxed) + joystick_left_x.load(std::memory_order_relaxed), -1.0f, 1.0f);
+        float sign = inv ? -1.0f : 1.0f;
+        if (mode == 1) {
+            leftMotor.set_duty_cycle(cmd * duty_lim * sign);
+        } else {
+            leftMotor.set_rpm(static_cast<int32_t>(cmd * rpm_lim * sign));
+        }
     }
 
     void driveRight(){
         if (!rightMotor.isConnected()) {
-        //    RCLCPP_WARN(get_logger(), "Right motor disconnected, reconnecting...");
-         //   rightMotor.autoConnect();
+            RCLCPP_WARN(get_logger(), "Right motor disconnected, reconnecting...");
+            rightMotor.autoConnect();
             return;
         }
-        float lim; bool inv;
-        { std::lock_guard<std::mutex> lk(settings_mutex_); lim = right_.rpm_limit; inv = right_.inverted; }
+        float rpm_lim, duty_lim; bool inv; uint8_t mode;
+        {
+            std::lock_guard<std::mutex> lk(settings_mutex_);
+            rpm_lim = right_.rpm_limit; duty_lim = right_.duty_cycle_limit;
+            inv = right_.inverted; mode = right_.control_mode;
+        }
         // Diferencial tipo tanque: right = Y - X
-        float cmd = std::clamp(joystick_left_y - joystick_left_x, -1.0f, 1.0f);
-        rightMotor.set_rpm(static_cast<int32_t>(cmd * lim * (inv ? -1.0f : 1.0f)));
+        float cmd = std::clamp(joystick_left_y.load(std::memory_order_relaxed) - joystick_left_x.load(std::memory_order_relaxed), -1.0f, 1.0f);
+        float sign = inv ? -1.0f : 1.0f;
+        if (mode == 1) {
+            rightMotor.set_duty_cycle(cmd * duty_lim * sign);
+        } else {
+            rightMotor.set_rpm(static_cast<int32_t>(cmd * rpm_lim * sign));
+        }
     }
 
     void driveFrontFlipper(){   // flipper delantero ← right joystick Y
-        if (!leftFlipperMotor.isConnected()) {
-         //   RCLCPP_WARN(get_logger(), "Front flipper disconnected, reconnecting...");
-           // leftFlipperMotor.autoConnect();
+        if (!rightFlipperMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Flipper Delantero disconnected, reconnecting...");
+            rightFlipperMotor.autoConnect();
             return;
         }
-        float lim; bool inv;
-        { std::lock_guard<std::mutex> lk(settings_mutex_); lim = left_flipper_.rpm_limit; inv = left_flipper_.inverted; }
-        float cmd = std::clamp(joystick_right_y, -1.0f, 1.0f);
-        leftFlipperMotor.set_rpm(static_cast<int32_t>(cmd * lim * (inv ? -1.0f : 1.0f)));
+        float rpm_lim, duty_lim; bool inv; uint8_t mode;
+        {
+            std::lock_guard<std::mutex> lk(settings_mutex_);
+            rpm_lim = right_flipper_.rpm_limit; duty_lim = right_flipper_.duty_cycle_limit;
+            inv = right_flipper_.inverted; mode = right_flipper_.control_mode;
+        }
+        float cmd = std::clamp(joystick_right_y.load(std::memory_order_relaxed), -1.0f, 1.0f);
+        float sign = inv ? -1.0f : 1.0f;
+        if (mode == 1) {
+            rightFlipperMotor.set_duty_cycle(cmd * duty_lim * sign);
+        } else {
+            rightFlipperMotor.set_rpm(static_cast<int32_t>(cmd * rpm_lim * sign));
+        }
     }
 
     void driveRearFlipper(){    // flipper trasero ← right joystick X
-        if (!rightFlipperMotor.isConnected()) {
-        //    RCLCPP_WARN(get_logger(), "Rear flipper disconnected, reconnecting...");
-            //rightFlipperMotor.autoConnect();
+        if (!leftFlipperMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Flipper Trasero disconnected, reconnecting...");
+            leftFlipperMotor.autoConnect();
             return;
         }
-        float lim; bool inv;
-        { std::lock_guard<std::mutex> lk(settings_mutex_); lim = right_flipper_.rpm_limit; inv = right_flipper_.inverted; }
-        float cmd = std::clamp(joystick_right_x, -1.0f, 1.0f);
-        rightFlipperMotor.set_rpm(static_cast<int32_t>(cmd * lim * (inv ? -1.0f : 1.0f)));
+        float rpm_lim, duty_lim; bool inv; uint8_t mode;
+        {
+            std::lock_guard<std::mutex> lk(settings_mutex_);
+            rpm_lim = left_flipper_.rpm_limit; duty_lim = left_flipper_.duty_cycle_limit;
+            inv = left_flipper_.inverted; mode = left_flipper_.control_mode;
+        }
+        float cmd = std::clamp(joystick_right_x.load(std::memory_order_relaxed), -1.0f, 1.0f);
+        float sign = inv ? -1.0f : 1.0f;
+        if (mode == 1) {
+            leftFlipperMotor.set_duty_cycle(cmd * duty_lim * sign);
+        } else {
+            leftFlipperMotor.set_rpm(static_cast<int32_t>(cmd * rpm_lim * sign));
+        }
     }
 
     void telemetry(){
         VESCData m_telemetry;
+        MotorSettings l, r, lf, rf;
+        {
+            std::lock_guard<std::mutex> lk(settings_mutex_);
+            l = left_; r = right_; lf = left_flipper_; rf = right_flipper_;
+        }
 
-        if(leftMotor.get_telemetry(m_telemetry)){
+        if(leftMotor.isConnected() && leftMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
             msg.motor_id     = m_telemetry.motor_controller_id;
             msg.motor_name   = "Track Izquierdo";
             msg.rpm          = m_telemetry.rpm;
             msg.duty_cycle   = m_telemetry.duty_cycle;
+            msg.current_in   = m_telemetry.current_in;
             msg.voltage      = m_telemetry.input_voltage;
-            msg.control_mode = 0;
-            msg.inverted     = false;
+            msg.position     = m_telemetry.position;
+            msg.fault_code   = m_telemetry.fault_code;
+            msg.control_mode = l.control_mode;
+            msg.inverted     = l.inverted;
             left_full_telemetry_pub->publish(msg);
         }
 
-        if(rightMotor.get_telemetry(m_telemetry)){
+        if(rightMotor.isConnected() && rightMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
             msg.motor_id     = m_telemetry.motor_controller_id;
             msg.motor_name   = "Track Derecho";
             msg.rpm          = m_telemetry.rpm;
             msg.duty_cycle   = m_telemetry.duty_cycle;
+            msg.current_in   = m_telemetry.current_in;
             msg.voltage      = m_telemetry.input_voltage;
-            msg.control_mode = 0;
-            msg.inverted     = true;
+            msg.position     = m_telemetry.position;
+            msg.fault_code   = m_telemetry.fault_code;
+            msg.control_mode = r.control_mode;
+            msg.inverted     = r.inverted;
             right_full_telemetry_pub->publish(msg);
         }
 
-        // flipper telemetry
-        if(leftFlipperMotor.get_telemetry(m_telemetry)){
+        if(leftFlipperMotor.isConnected() && leftFlipperMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
             msg.motor_id     = m_telemetry.motor_controller_id;
             msg.motor_name   = "Flipper Trasero";
             msg.rpm          = m_telemetry.rpm;
             msg.duty_cycle   = m_telemetry.duty_cycle;
+            msg.current_in   = m_telemetry.current_in;
             msg.voltage      = m_telemetry.input_voltage;
-            msg.control_mode = 0;
-            msg.inverted     = false;
+            msg.position     = m_telemetry.position;
+            msg.fault_code   = m_telemetry.fault_code;
+            msg.control_mode = lf.control_mode;
+            msg.inverted     = lf.inverted;
             left_flipper_full_telemetry_pub->publish(msg);
         }
-        if(rightFlipperMotor.get_telemetry(m_telemetry)){
+
+        if(rightFlipperMotor.isConnected() && rightFlipperMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
             msg.motor_id     = m_telemetry.motor_controller_id;
             msg.motor_name   = "Flipper Delantero";
             msg.rpm          = m_telemetry.rpm;
             msg.duty_cycle   = m_telemetry.duty_cycle;
+            msg.current_in   = m_telemetry.current_in;
             msg.voltage      = m_telemetry.input_voltage;
-            msg.control_mode = 0;
-            msg.inverted     = true;
+            msg.position     = m_telemetry.position;
+            msg.fault_code   = m_telemetry.fault_code;
+            msg.control_mode = rf.control_mode;
+            msg.inverted     = rf.inverted;
             right_flipper_full_telemetry_pub->publish(msg);
         }
-
     }
 
     // ---- Config helpers ----
@@ -297,12 +352,13 @@ class BodyNode : public rclcpp::Node{
     }
 
     void onConfigUpdate(const robot_msgs::msg::MotorConfig::SharedPtr msg) {
-        MotorSettings* t = nullptr;
+        MotorSettings* t  = nullptr;
+        VESC*          v  = nullptr;
         switch (msg->config_index) {
-            case 0: t = &left_flipper_; break;
-            case 1: t = &left_;         break;
-            case 2: t = &right_;        break;
-            case 3: t = &right_flipper_;break;
+            case 0: t = &left_flipper_; v = &leftFlipperMotor;  break;
+            case 1: t = &left_;         v = &leftMotor;          break;
+            case 2: t = &right_;        v = &rightMotor;         break;
+            case 3: t = &right_flipper_;v = &rightFlipperMotor;  break;
             default: return;  // Not a body motor
         }
         {
@@ -312,6 +368,7 @@ class BodyNode : public rclcpp::Node{
             t->duty_cycle_limit = msg->duty_cycle_limit;
             t->control_mode     = msg->control_mode;
             t->inverted         = msg->inverted;
+            v->setId(msg->motor_vesc_id);
         }
         RCLCPP_INFO(get_logger(),
             "Config update [%u] %s: vesc_id=%u  rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s",
@@ -337,10 +394,7 @@ class BodyNode : public rclcpp::Node{
     rclcpp::TimerBase::SharedPtr timer_left_flipper_;
     rclcpp::TimerBase::SharedPtr timer_right_flipper_;
     
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_left_y_;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_left_x_;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_right_y_;
-    rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr sub_right_x_;
+    rclcpp::Subscription<robot_msgs::msg::JoystickAxes>::SharedPtr sub_axes_;
     
     rclcpp::Publisher<robot_msgs::msg::MotorTelemetry>::SharedPtr left_full_telemetry_pub;
     rclcpp::Publisher<robot_msgs::msg::MotorTelemetry>::SharedPtr right_full_telemetry_pub;
@@ -351,10 +405,10 @@ class BodyNode : public rclcpp::Node{
     rclcpp::TimerBase::SharedPtr telemetry_timer_;
     rclcpp::CallbackGroup::SharedPtr callback_group_telemetry_;
 
-    float joystick_left_y  = 0.0f;
-    float joystick_left_x  = 0.0f;
-    float joystick_right_y = 0.0f;  // flipper delantero
-    float joystick_right_x = 0.0f;  // flipper trasero
+    std::atomic<float> joystick_left_y  {0.0f};
+    std::atomic<float> joystick_left_x  {0.0f};
+    std::atomic<float> joystick_right_y {0.0f};  // flipper delantero
+    std::atomic<float> joystick_right_x {0.0f};  // flipper trasero
 
     // ---- Config state ----
     std::string         config_path_;

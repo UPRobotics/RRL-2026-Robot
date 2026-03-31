@@ -1,5 +1,6 @@
 #include "robot_pkg/VESC.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <cerrno>
@@ -84,11 +85,21 @@ std::vector<std::string> scanPorts(){
     return ports;
 }
 
+void VESC::setId(uint8_t id) {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
+    motor_id = id;
+}
+
 bool VESC::autoConnect(){
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     auto ports = scanPorts();
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 
     for(const auto& port: ports){
+        if (std::chrono::steady_clock::now() >= deadline) {
+            RCLCPP_WARN(logger, "autoConnect timed out after 5 s, motor_id=%u — giving up.", motor_id);
+            return false;
+        }
         RCLCPP_INFO(logger,"detected the port %s", port.c_str());
         try{
             if (serial_port_) {
@@ -168,6 +179,26 @@ void VESC::set_rpm(int32_t rpm) {
         RCLCPP_ERROR(logger, "set_rpm unknown error");
         running = false;
         try { if(serial_port_) serial_port_->Close(); } catch(...) {}
+    }
+}
+
+void VESC::set_duty_cycle(float duty) {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
+    if (!isConnected()) return;
+
+    try {
+        int32_t scaled = static_cast<int32_t>(duty * 100000.0f);
+        std::vector<uint8_t> payload;
+        payload.push_back(5); // COMM_SET_DUTY
+        payload.push_back(static_cast<uint8_t>((scaled >> 24) & 0xFF));
+        payload.push_back(static_cast<uint8_t>((scaled >> 16) & 0xFF));
+        payload.push_back(static_cast<uint8_t>((scaled >>  8) & 0xFF));
+        payload.push_back(static_cast<uint8_t>( scaled        & 0xFF));
+        send_vesc_packet(payload);
+    } catch (...) {
+        RCLCPP_ERROR(logger, "set_duty_cycle unknown error");
+        running = false;
+        try { if (serial_port_) serial_port_->Close(); } catch (...) {}
     }
 }
 
@@ -274,26 +305,40 @@ bool VESC::get_telemetry(VESCData& out) {
     auto raw = read_bytes();
     auto payload = find_packet(raw);
 
-    if (payload.empty() || payload[0] != 4) return false;
+    if (payload.size() < 29 || payload[0] != 4) return false;
 
     // Offsets from official VESC firmware
     auto get_i16 = [&](int i) {
         return (payload[i] << 8) | payload[i+1];
     };
 
-    auto get_i32 = [&](int i) {
-        return (payload[i] << 24) |
-               (payload[i+1] << 16) |
-               (payload[i+2] << 8) |
-                payload[i+3];
+    auto get_i32 = [&](int i) -> int32_t {
+        return static_cast<int32_t>(
+            (static_cast<uint32_t>(payload[i])   << 24) |
+            (static_cast<uint32_t>(payload[i+1]) << 16) |
+            (static_cast<uint32_t>(payload[i+2]) <<  8) |
+             static_cast<uint32_t>(payload[i+3])
+        );
     };
-    out.temp_fet      = get_i16(1) / 10.0f;
-    out.current_motor = get_i32(5) / 100.0f;
+    // Payload layout (COMM_GET_VALUES = 0x04):
+    //  [1-2]   temp_fet        i16 /10
+    //  [5-8]   current_motor   i32 /100
+    //  [9-12]  current_in      i32 /100
+    //  [21-22] duty_cycle      i16 /1000
+    //  [23-26] rpm             i32
+    //  [27-28] input_voltage   i16 /10
+    //  [53]    fault_code      u8
+    //  [54-57] position        i32 /1000000  (degrees)
+    //  [58]    motor_id        u8
+    out.temp_fet      = get_i16(1)  / 10.0f;
+    out.current_motor = get_i32(5)  / 100.0f;
+    out.current_in    = get_i32(9)  / 100.0f;
+    out.duty_cycle    = get_i16(21) / 1000.0f;
     out.rpm           = get_i32(23);
-    out.input_voltage = get_i16(29) / 10.0f;
+    out.input_voltage = get_i16(27) / 10.0f;
 
-    if(payload.size() > 58){
-        out.motor_controller_id = payload[58];
-    }
+    if (payload.size() > 53) out.fault_code = payload[53];
+    if (payload.size() > 57) out.position   = get_i32(54) / 1000000.0f;
+    if (payload.size() > 58) out.motor_controller_id = payload[58];
     return true;
 }

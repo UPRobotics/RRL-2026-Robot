@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CycloneDDS WiFi profile — RRL 2026 Robot
+  ─────────────────────────────────────────
+  Lower steady-state latency than FastDDS (~2-4 ms less per message).
+  Unicast-only: avoids multicast issues on WiFi access points.
+
+  BEFORE USE:
+    Replace ROBOT_IP and STATION_IP with the real IPs of your network.
+    Then: source fastdds/setup_cyclone.sh
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+
+    <General>
+      <!-- Bind to all interfaces; set to wlan0 if you want to force WiFi only -->
+      <NetworkInterfaceAddress>AUTO</NetworkInterfaceAddress>
+      <AllowMulticast>false</AllowMulticast>
+      <!-- Fragment large messages to stay within WiFi MTU -->
+      <MaxMessageSize>65500B</MaxMessageSize>
+      <FragmentSize>4000B</FragmentSize>
+    </General>
+
+    <Discovery>
+      <!-- ═══ CHANGE THESE IPs ═══ -->
+      <Peers>
+        <Peer Address="ROBOT_IP"/>      <!-- e.g. 192.168.1.100 -->
+        <Peer Address="STATION_IP"/>    <!-- e.g. 192.168.1.200 -->
+      </Peers>
+      <!-- ══════════════════════════ -->
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>50</MaxAutoParticipantIndex>
+    </Discovery>
+
+    <Internal>
+      <!-- Reduce write cache to keep queue short and latency low -->
+      <Watermarks>
+        <WhcHigh>500kB</WhcHigh>
+        <WhcLow>100kB</WhcLow>
+      </Watermarks>
+      <!-- Aggressive ACK scheduling for RELIABLE topics (config updates) -->
+      <AckDelay>1ms</AckDelay>
+      <NackDelay>10ms</NackDelay>
+    </Internal>
+
+    <Tracing>
+      <Verbosity>warning</Verbosity>
+      <OutputFile>stderr</OutputFile>
+    </Tracing>
+
+  </Domain>
+</CycloneDDS>

@@ -9,7 +9,7 @@
     {
       "name": "Flipper Trasero",
       "id": 2,
-      "inverted": false,
+      "inverted": true,
       "control_mode": 0,
       "rpm_limit": 5000.0,
       "duty_cycle_limit": 1.0
@@ -33,7 +33,7 @@
     {
       "name": "Flipper Delantero",
       "id": 3,
-      "inverted": true,
+      "inverted": false,
       "control_mode": 0,
       "rpm_limit": 5000.0,
       "duty_cycle_limit": 1.0
