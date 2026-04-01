@@ -92,76 +92,80 @@ void VESC::setId(uint8_t id) {
     motor_id = id;
 }
 
-bool VESC::autoConnect(){
+bool VESC::autoConnect() {
     std::lock_guard<std::mutex> scan_lk(scan_mutex_);
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
+    
     auto ports = scanPorts();
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-
-    for(const auto& port: ports){
-        if (std::chrono::steady_clock::now() >= deadline) {
-            RCLCPP_WARN(logger, "autoConnect timed out after 5 s, motor_id=%u — giving up.", motor_id);
-            return false;
-        }
-        RCLCPP_INFO(logger,"detected the port %s", port.c_str());
-        try{
+    RCLCPP_INFO(logger, "Scanning for motor_id=%u, found %zu ports", motor_id, ports.size());
+    
+    for (const auto& port : ports) {
+        RCLCPP_INFO(logger, "Trying port %s for motor_id=%u", port.c_str(), motor_id);
+        
+        try {
+            if (serial_port_ && serial_port_->IsOpen()) {
+                serial_port_->Close();
+            }
+            serial_port_.reset();
+            serial_port_ = std::make_unique<SerialPort>();
+            
+            RCLCPP_INFO(logger, "Opening port %s", port.c_str());
+            serial_port_->Open(port);
+            RCLCPP_INFO(logger, "Opened port %s", port.c_str());
+            
+            setupPort();
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            
+            serial_port_->FlushInputBuffer();
+            serial_port_->FlushIOBuffers();
+            RCLCPP_INFO(logger, "Buffers flushed.");
+            
+            VESCData data;
+            running = true;
+            
+            // Try multiple times to get telemetry
+            bool got_telemetry = false;
+            for (int attempt = 0; attempt < 3; attempt++) {
+                if (get_telemetry(data)) {
+                    got_telemetry = true;
+                    break;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+            
+            if (got_telemetry) {
+                RCLCPP_INFO(logger, "Got telemetry from %s: motor_id=%u, target_id=%u", 
+                           port.c_str(), data.motor_controller_id, motor_id);
+                
+                if (data.motor_controller_id == motor_id) {
+                    port_name = port;
+                    RCLCPP_INFO(logger, "SUCCESS: Matched motor_id=%u on %s", motor_id, port.c_str());
+                    return true;
+                } else {
+                    RCLCPP_WARN(logger, "Wrong motor ID on %s: got %u, want %u", 
+                               port.c_str(), data.motor_controller_id, motor_id);
+                }
+            } else {
+                RCLCPP_WARN(logger, "Failed to get telemetry from %s", port.c_str());
+            }
+            
+            running = false;
+            serial_port_->Close();
+            serial_port_.reset();
+            
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(logger, "Port %s failed: %s", port.c_str(), e.what());
+            running = false;
             if (serial_port_) {
                 try { serial_port_->Close(); } catch(...) {}
                 serial_port_.reset();
             }
-
-            serial_port_ = std::make_unique<SerialPort>();
-            RCLCPP_INFO(logger, "Opening port %s", port.c_str());
-            try {
-                serial_port_->Open(port);
-                RCLCPP_INFO(logger, "Opened port %s", port.c_str());
-            } catch (const std::exception &e) {
-                int err = errno;
-                RCLCPP_WARN(logger, "Open failed for %s: %s (errno=%d: %s)",
-                            port.c_str(), e.what(), err, strerror(err));
-                try { serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
-            }
-
-            setupPort();
-
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-
-            try {
-                serial_port_->FlushInputBuffer();
-                serial_port_->FlushIOBuffers();
-                RCLCPP_INFO(logger, "Buffers flushed.");
-            } catch (const std::exception &e) {
-                RCLCPP_WARN(logger, "Flush failed for %s: %s - skipping port", port.c_str(), e.what());
-                try { serial_port_->Close(); } catch(...) {}
-                serial_port_.reset();
-                continue;
-            }
-
-            VESCData data;
-            running = true;
-                if (get_telemetry(data)) {
-                    if (data.motor_controller_id == motor_id) {
-                        port_name = port;
-                        return true;
-                    }
-                }
-
-            running = false;
-            try { serial_port_->Close(); } catch(...) {}
-            serial_port_.reset();
-
         }
-        catch(const std::exception& e){
-            RCLCPP_INFO(logger, "Port %s failed: %s", port.c_str(), e.what());
-            running = false;
-            try { if(serial_port_) serial_port_->Close(); } catch(...) {}
-            serial_port_.reset();
-            continue;
-        }
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
-
+    
+    RCLCPP_ERROR(logger, "Failed to find motor_id=%u after scanning all ports", motor_id);
     return false;
 }
 
