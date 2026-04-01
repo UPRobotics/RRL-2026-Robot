@@ -126,7 +126,7 @@ bool VESC::autoConnect(){
 
             setupPort();
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
             try {
                 serial_port_->FlushInputBuffer();
@@ -141,12 +141,26 @@ bool VESC::autoConnect(){
 
             VESCData data;
             running = true;
+            bool got_response = false;
+            for (int attempt = 0; attempt < 3 && !got_response; ++attempt) {
+                if (attempt > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    try { serial_port_->FlushInputBuffer(); } catch(...) {}
+                }
                 if (get_telemetry(data)) {
+                    got_response = true;
+                    RCLCPP_INFO(logger, "Port %s responded (attempt %d): received VESC ID=%u, looking for ID=%u",
+                        port.c_str(), attempt + 1, data.motor_controller_id, motor_id);
                     if (data.motor_controller_id == motor_id) {
                         port_name = port;
+                        RCLCPP_INFO(logger, "Motor ID=%u matched on port %s", motor_id, port.c_str());
                         return true;
                     }
                 }
+            }
+            if (!got_response) {
+                RCLCPP_WARN(logger, "Port %s: no valid VESC response after 3 attempts for motor_id=%u", port.c_str(), motor_id);
+            }
 
             running = false;
             try { serial_port_->Close(); } catch(...) {}
@@ -306,9 +320,22 @@ bool VESC::get_telemetry(VESCData& out) {
     if (!running) return false;
 
     auto raw = read_bytes();
-    auto payload = find_packet(raw);
+    if (raw.empty()) {
+        RCLCPP_WARN(logger, "read_bytes() returned empty — no data from VESC (timeout)");
+        return false;
+    }
 
-    if (payload.size() < 29 || payload[0] != 4) return false;
+    auto payload = find_packet(raw);
+    if (payload.empty()) {
+        RCLCPP_WARN(logger, "find_packet() failed: got %zu raw bytes but no valid VESC frame", raw.size());
+        return false;
+    }
+
+    if (payload.size() < 29 || payload[0] != 4) {
+        RCLCPP_WARN(logger, "Invalid payload: size=%zu, cmd=0x%02X (expected >=29 bytes, cmd=0x04)",
+            payload.size(), payload.empty() ? 0 : payload[0]);
+        return false;
+    }
 
     // Offsets from official VESC firmware
     auto get_i16 = [&](int i) {
