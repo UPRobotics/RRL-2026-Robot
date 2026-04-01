@@ -34,36 +34,28 @@ struct MotorSettings {
 
 class BodyNode : public rclcpp::Node{
     public:
-        int leftMotorId    = 0;   // Track Izquierdo  VESC ID 0
-        int rightMotorId   = 1;   // Track Derecho    VESC ID 1
-        int leftFlipperId  = 2;   // Flipper Trasero  VESC ID 2
-        int rightFlipperId = 3;   // Flipper Delantero VESC ID 3
 
         BodyNode() : Node("body_node"),
             leftMotor(
-                declare_parameter<uint8_t>("left_id", leftMotorId),
+                declare_parameter<uint8_t>("left_id", left_.vesc_id),
                 declare_parameter<int>("left_baudrate", 115200),
                 declare_parameter<int>("left_timeout", 1000)),
                 
             rightMotor(
-                declare_parameter<uint8_t>("right_id", rightMotorId),
+                declare_parameter<uint8_t>("right_id", right_.vesc_id),
                 declare_parameter<int>("right_baudrate", 115200),
                 declare_parameter<int>("right_timeout", 1000)),
             leftFlipperMotor(
-                declare_parameter<uint8_t>("left_flipper_id", leftFlipperId),
+                declare_parameter<uint8_t>("left_flipper_id", left_flipper_.vesc_id),
                 declare_parameter<int>("left_flipper_baudrate", 115200),
                 declare_parameter<int>("left_flipper_timeout", 1000)),
             rightFlipperMotor(
-                declare_parameter<uint8_t>("right_flipper_id", rightFlipperId),
+                declare_parameter<uint8_t>("right_flipper_id", right_flipper_.vesc_id),
                 declare_parameter<int>("right_flipper_baudrate", 115200),
                 declare_parameter<int>("right_flipper_timeout", 1000))
                 {
 
                 loadConfig();
-                leftMotor.setId(left_.vesc_id);
-                rightMotor.setId(right_.vesc_id);
-                leftFlipperMotor.setId(left_flipper_.vesc_id);
-                rightFlipperMotor.setId(right_flipper_.vesc_id);
 
                 if(leftMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Left motor connected.");
