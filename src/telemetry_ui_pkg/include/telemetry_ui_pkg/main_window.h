@@ -44,15 +44,21 @@ namespace Colors {
 static constexpr int NUM_MOTORS = 10;
 
 struct MotorData {
-    uint8_t     motor_id     = 0;
+    uint8_t     motor_id         = 0;
     std::string motor_name;
-    int         config_index = -1;
-    int32_t     rpm          = 0;
-    float       duty_cycle   = 0.0f;
-    float       voltage      = 0.0f;
-    uint8_t     control_mode = 0;
-    bool        inverted     = false;
-    bool        received     = false;
+    int         config_index     = -1;
+    int32_t     rpm              = 0;
+    float       duty_cycle       = 0.0f;
+    float       voltage          = 0.0f;
+    uint8_t     control_mode     = 0;
+    bool        inverted         = false;
+    bool        received         = false;
+    float       current_in       = 0.0f;
+    float       current_motor    = 0.0f;
+    float       position         = 0.0f;
+    uint8_t     fault_code       = 0;
+    float       rpm_limit        = 0.0f;
+    float       duty_cycle_limit = 0.0f;
 };
 
 // -------------------------------------------------------

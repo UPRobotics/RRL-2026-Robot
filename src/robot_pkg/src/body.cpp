@@ -10,6 +10,7 @@
 #include <functional>
 #include <fstream>
 #include <atomic>
+#include <filesystem>
 #include <mutex>
 
 using namespace std::chrono_literals;
@@ -245,53 +246,65 @@ class BodyNode : public rclcpp::Node{
             msg.voltage      = m_telemetry.input_voltage;
             msg.position     = m_telemetry.position;
             msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = l.control_mode;
-            msg.inverted     = l.inverted;
+            msg.control_mode     = l.control_mode;
+            msg.inverted         = l.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = l.rpm_limit;
+            msg.duty_cycle_limit = l.duty_cycle_limit;
             left_full_telemetry_pub->publish(msg);
         }
 
         if(rightMotor.isConnected() && rightMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Track Derecho";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = r.control_mode;
-            msg.inverted     = r.inverted;
+            msg.motor_id         = m_telemetry.motor_controller_id;
+            msg.motor_name       = "Track Derecho";
+            msg.rpm              = m_telemetry.rpm;
+            msg.duty_cycle       = m_telemetry.duty_cycle;
+            msg.current_in       = m_telemetry.current_in;
+            msg.voltage          = m_telemetry.input_voltage;
+            msg.position         = m_telemetry.position;
+            msg.fault_code       = m_telemetry.fault_code;
+            msg.control_mode     = r.control_mode;
+            msg.inverted         = r.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = r.rpm_limit;
+            msg.duty_cycle_limit = r.duty_cycle_limit;
             right_full_telemetry_pub->publish(msg);
         }
 
         if(leftFlipperMotor.isConnected() && leftFlipperMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Flipper Trasero";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = lf.control_mode;
-            msg.inverted     = lf.inverted;
+            msg.motor_id         = m_telemetry.motor_controller_id;
+            msg.motor_name       = "Flipper Trasero";
+            msg.rpm              = m_telemetry.rpm;
+            msg.duty_cycle       = m_telemetry.duty_cycle;
+            msg.current_in       = m_telemetry.current_in;
+            msg.voltage          = m_telemetry.input_voltage;
+            msg.position         = m_telemetry.position;
+            msg.fault_code       = m_telemetry.fault_code;
+            msg.control_mode     = lf.control_mode;
+            msg.inverted         = lf.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = lf.rpm_limit;
+            msg.duty_cycle_limit = lf.duty_cycle_limit;
             left_flipper_full_telemetry_pub->publish(msg);
         }
 
         if(rightFlipperMotor.isConnected() && rightFlipperMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Flipper Delantero";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = rf.control_mode;
-            msg.inverted     = rf.inverted;
+            msg.motor_id         = m_telemetry.motor_controller_id;
+            msg.motor_name       = "Flipper Delantero";
+            msg.rpm              = m_telemetry.rpm;
+            msg.duty_cycle       = m_telemetry.duty_cycle;
+            msg.current_in       = m_telemetry.current_in;
+            msg.voltage          = m_telemetry.input_voltage;
+            msg.position         = m_telemetry.position;
+            msg.fault_code       = m_telemetry.fault_code;
+            msg.control_mode     = rf.control_mode;
+            msg.inverted         = rf.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = rf.rpm_limit;
+            msg.duty_cycle_limit = rf.duty_cycle_limit;
             right_flipper_full_telemetry_pub->publish(msg);
         }
     }
@@ -319,7 +332,8 @@ class BodyNode : public rclcpp::Node{
             };
             std::lock_guard<std::mutex> lk(settings_mutex_);
             read(0, left_flipper_); read(1, left_); read(2, right_); read(3, right_flipper_);
-            RCLCPP_INFO(get_logger(), "Config loaded from %s", config_path_.c_str());
+            RCLCPP_INFO(get_logger(), "Config loaded from %s",
+                std::filesystem::canonical(config_path_).string().c_str());
         } catch (const std::exception& e) {
             RCLCPP_ERROR(get_logger(), "loadConfig failed: %s", e.what());
         }

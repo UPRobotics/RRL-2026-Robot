@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <fstream>
 #include <memory>
@@ -278,83 +279,101 @@ private:
             msg.voltage      = m_telemetry.input_voltage;
             msg.position     = m_telemetry.position;
             msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = h.control_mode;
-            msg.inverted     = h.inverted;
+            msg.control_mode     = h.control_mode;
+            msg.inverted         = h.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = h.rpm_limit;
+            msg.duty_cycle_limit = h.duty_cycle_limit;
             hip_telemetry_pub->publish(msg);
         }
 
         if(shoulderMotor.isConnected() && shoulderMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Hombro";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = sh.control_mode;
-            msg.inverted     = sh.inverted;
+            msg.motor_id         = m_telemetry.motor_controller_id;
+            msg.motor_name       = "Hombro";
+            msg.rpm              = m_telemetry.rpm;
+            msg.duty_cycle       = m_telemetry.duty_cycle;
+            msg.current_in       = m_telemetry.current_in;
+            msg.voltage          = m_telemetry.input_voltage;
+            msg.position         = m_telemetry.position;
+            msg.fault_code       = m_telemetry.fault_code;
+            msg.control_mode     = sh.control_mode;
+            msg.inverted         = sh.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = sh.rpm_limit;
+            msg.duty_cycle_limit = sh.duty_cycle_limit;
             shoulder_telemetry_pub->publish(msg);
         }
 
         if(elbowMotor.isConnected() && elbowMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Codo";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = el.control_mode;
-            msg.inverted     = el.inverted;
+            msg.motor_id         = m_telemetry.motor_controller_id;
+            msg.motor_name       = "Codo";
+            msg.rpm              = m_telemetry.rpm;
+            msg.duty_cycle       = m_telemetry.duty_cycle;
+            msg.current_in       = m_telemetry.current_in;
+            msg.voltage          = m_telemetry.input_voltage;
+            msg.position         = m_telemetry.position;
+            msg.fault_code       = m_telemetry.fault_code;
+            msg.control_mode     = el.control_mode;
+            msg.inverted         = el.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = el.rpm_limit;
+            msg.duty_cycle_limit = el.duty_cycle_limit;
             elbow_telemetry_pub->publish(msg);
         }
 
         if(rollMotor.isConnected() && rollMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Roll";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = ro.control_mode;
-            msg.inverted     = ro.inverted;
+            msg.motor_id         = m_telemetry.motor_controller_id;
+            msg.motor_name       = "Roll";
+            msg.rpm              = m_telemetry.rpm;
+            msg.duty_cycle       = m_telemetry.duty_cycle;
+            msg.current_in       = m_telemetry.current_in;
+            msg.voltage          = m_telemetry.input_voltage;
+            msg.position         = m_telemetry.position;
+            msg.fault_code       = m_telemetry.fault_code;
+            msg.control_mode     = ro.control_mode;
+            msg.inverted         = ro.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = ro.rpm_limit;
+            msg.duty_cycle_limit = ro.duty_cycle_limit;
             roll_telemetry_pub->publish(msg);
         }
 
         if(pitchMotor.isConnected() && pitchMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Pitch";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = pi.control_mode;
-            msg.inverted     = pi.inverted;
+            msg.motor_id         = m_telemetry.motor_controller_id;
+            msg.motor_name       = "Pitch";
+            msg.rpm              = m_telemetry.rpm;
+            msg.duty_cycle       = m_telemetry.duty_cycle;
+            msg.current_in       = m_telemetry.current_in;
+            msg.voltage          = m_telemetry.input_voltage;
+            msg.position         = m_telemetry.position;
+            msg.fault_code       = m_telemetry.fault_code;
+            msg.control_mode     = pi.control_mode;
+            msg.inverted         = pi.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = pi.rpm_limit;
+            msg.duty_cycle_limit = pi.duty_cycle_limit;
             pitch_telemetry_pub->publish(msg);
         }
 
         if(clawMotor.isConnected() && clawMotor.get_telemetry(m_telemetry)){
             robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Grip";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode = cl.control_mode;
-            msg.inverted     = cl.inverted;
+            msg.motor_id         = m_telemetry.motor_controller_id;
+            msg.motor_name       = "Grip";
+            msg.rpm              = m_telemetry.rpm;
+            msg.duty_cycle       = m_telemetry.duty_cycle;
+            msg.current_in       = m_telemetry.current_in;
+            msg.voltage          = m_telemetry.input_voltage;
+            msg.position         = m_telemetry.position;
+            msg.fault_code       = m_telemetry.fault_code;
+            msg.control_mode     = cl.control_mode;
+            msg.inverted         = cl.inverted;
+            msg.current_motor    = m_telemetry.current_motor;
+            msg.rpm_limit        = cl.rpm_limit;
+            msg.duty_cycle_limit = cl.duty_cycle_limit;
             claw_telemetry_pub->publish(msg);
         }
     }
@@ -383,7 +402,8 @@ private:
             std::lock_guard<std::mutex> lk(settings_mutex_);
             read(4, hip_); read(5, shoulder_); read(6, elbow_);
             read(7, roll_); read(8, pitch_);   read(9, claw_);
-            RCLCPP_INFO(get_logger(), "Config loaded from %s", config_path_.c_str());
+            RCLCPP_INFO(get_logger(), "Config loaded from %s",
+                std::filesystem::canonical(config_path_).string().c_str());
         } catch (const std::exception& e) {
             RCLCPP_ERROR(get_logger(), "loadConfig failed: %s", e.what());
         }

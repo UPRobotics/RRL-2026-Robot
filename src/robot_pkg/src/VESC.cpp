@@ -114,41 +114,43 @@ bool VESC::autoConnect() {
             RCLCPP_INFO(logger, "Opened port %s", port.c_str());
             
             setupPort();
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-            
-            serial_port_->FlushInputBuffer();
-            serial_port_->FlushIOBuffers();
-            RCLCPP_INFO(logger, "Buffers flushed.");
-            
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+            try {
+                serial_port_->FlushInputBuffer();
+                serial_port_->FlushIOBuffers();
+                RCLCPP_INFO(logger, "Buffers flushed.");
+            } catch (const std::exception &e) {
+                RCLCPP_WARN(logger, "Flush failed for %s: %s - skipping port", port.c_str(), e.what());
+                try { serial_port_->Close(); } catch(...) {}
+                serial_port_.reset();
+                continue;
+            }
+
             VESCData data;
             running = true;
-            
-            // Try multiple times to get telemetry
-            bool got_telemetry = false;
-            for (int attempt = 0; attempt < 3; attempt++) {
+            bool got_response = false;
+            for (int attempt = 0; attempt < 3 && !got_response; ++attempt) {
+                if (attempt > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                    try { serial_port_->FlushInputBuffer(); } catch(...) {}
+                }
                 if (get_telemetry(data)) {
-                    got_telemetry = true;
-                    break;
+                    got_response = true;
+                    RCLCPP_INFO(logger, "Port %s responded (attempt %d): received VESC ID=%u, looking for ID=%u",
+                        port.c_str(), attempt + 1, data.motor_controller_id, motor_id);
+                    if (data.motor_controller_id == motor_id) {
+                        port_name = port;
+                        RCLCPP_INFO(logger, "Motor ID=%u matched on port %s", motor_id, port.c_str());
+                        return true;
+                    }
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
-            
-            if (got_telemetry) {
-                RCLCPP_INFO(logger, "Got telemetry from %s: motor_id=%u, target_id=%u", 
-                           port.c_str(), data.motor_controller_id, motor_id);
-                
-                if (data.motor_controller_id == motor_id) {
-                    port_name = port;
-                    RCLCPP_INFO(logger, "SUCCESS: Matched motor_id=%u on %s", motor_id, port.c_str());
-                    return true;
-                } else {
-                    RCLCPP_WARN(logger, "Wrong motor ID on %s: got %u, want %u", 
-                               port.c_str(), data.motor_controller_id, motor_id);
-                }
-            } else {
-                RCLCPP_WARN(logger, "Failed to get telemetry from %s", port.c_str());
+            if (!got_response) {
+                RCLCPP_WARN(logger, "Port %s: no valid VESC response after 3 attempts for motor_id=%u", port.c_str(), motor_id);
             }
-            
+
             running = false;
             serial_port_->Close();
             serial_port_.reset();
@@ -319,9 +321,22 @@ bool VESC::get_telemetry(VESCData& out) {
     if (!running) return false;
 
     auto raw = read_bytes();
-    auto payload = find_packet(raw);
+    if (raw.empty()) {
+        RCLCPP_WARN(logger, "read_bytes() returned empty — no data from VESC (timeout)");
+        return false;
+    }
 
-    if (payload.size() < 29 || payload[0] != 4) return false;
+    auto payload = find_packet(raw);
+    if (payload.empty()) {
+        RCLCPP_WARN(logger, "find_packet() failed: got %zu raw bytes but no valid VESC frame", raw.size());
+        return false;
+    }
+
+    if (payload.size() < 29 || payload[0] != 4) {
+        RCLCPP_WARN(logger, "Invalid payload: size=%zu, cmd=0x%02X (expected >=29 bytes, cmd=0x04)",
+            payload.size(), payload.empty() ? 0 : payload[0]);
+        return false;
+    }
 
     // Offsets from official VESC firmware
     auto get_i16 = [&](int i) -> int16_t {
