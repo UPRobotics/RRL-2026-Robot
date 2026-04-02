@@ -1,90 +1,90 @@
 {
   "global_settings": {
-    "mobility_max_rpm": 8000.0,
-    "flipper_max_rpm": 5000.0,
     "control_mode": 0,
+    "flipper_max_rpm": 5000.0,
+    "mobility_max_rpm": 8000.0,
     "selected_flipper": 0
   },
   "motors": [
     {
-      "name": "Flipper Trasero",
+      "control_mode": 0,
+      "duty_cycle_limit": 0.15000000596046448,
       "id": 2,
       "inverted": true,
-      "control_mode": 0,
-      "rpm_limit": 5000.0,
-      "duty_cycle_limit": 1.0
+      "name": "Flipper Trasero",
+      "rpm_limit": 1500.0
     },
     {
-      "name": "Track Izquierdo",
+      "control_mode": 1,
+      "duty_cycle_limit": 0.15000000596046448,
       "id": 3,
-      "inverted": false,
-      "control_mode": 0,
-      "rpm_limit": 5000.0,
-      "duty_cycle_limit": 1.0
-    },
-    {
-      "name": "Track Derecho",
-      "id": 5,
       "inverted": true,
-      "control_mode": 0,
-      "rpm_limit": 5000.0,
-      "duty_cycle_limit": 1.0
+      "name": "Track Izquierdo",
+      "rpm_limit": 0.0
     },
     {
-      "name": "Flipper Delantero",
-      "id": 3,
+      "control_mode": 1,
+      "duty_cycle_limit": 0.15000000596046448,
+      "id": 5,
       "inverted": false,
-      "control_mode": 0,
-      "rpm_limit": 5000.0,
-      "duty_cycle_limit": 1.0
+      "name": "Track Derecho",
+      "rpm_limit": 0.0
     },
     {
-      "name": "Cadera",
+      "control_mode": 0,
+      "duty_cycle_limit": 0.15000000596046448,
+      "id": 0,
+      "inverted": false,
+      "name": "Flipper Delantero",
+      "rpm_limit": 1500.0
+    },
+    {
+      "control_mode": 0,
+      "duty_cycle_limit": 0.1,
       "id": 4,
       "inverted": false,
-      "control_mode": 0,
-      "rpm_limit": 3000.0,
-      "duty_cycle_limit": 0.1
+      "name": "Cadera",
+      "rpm_limit": 3000.0
     },
     {
-      "name": "Hombro",
-      "id": 5,
-      "inverted": false,
       "control_mode": 1,
-      "rpm_limit": 3000.0,
-      "duty_cycle_limit": 0.1
+      "duty_cycle_limit": 0.1,
+      "id": 10,
+      "inverted": false,
+      "name": "Hombro",
+      "rpm_limit": 3000.0
     },
     {
-      "name": "Codo",
+      "control_mode": 1,
+      "duty_cycle_limit": 0.1,
       "id": 6,
       "inverted": false,
-      "control_mode": 1,
-      "rpm_limit": 3000.0,
-      "duty_cycle_limit": 0.1
+      "name": "Codo",
+      "rpm_limit": 3000.0
     },
     {
-      "name": "Roll",
+      "control_mode": 0,
+      "duty_cycle_limit": 0.1,
       "id": 7,
       "inverted": false,
-      "control_mode": 0,
-      "rpm_limit": 2000.0,
-      "duty_cycle_limit": 0.1
+      "name": "Roll",
+      "rpm_limit": 2000.0
     },
     {
-      "name": "Pitch",
+      "control_mode": 1,
+      "duty_cycle_limit": 0.1,
       "id": 8,
       "inverted": false,
-      "control_mode": 1,
-      "rpm_limit": 1000.0,
-      "duty_cycle_limit": 0.1
+      "name": "Pitch",
+      "rpm_limit": 1000.0
     },
     {
-      "name": "Grip",
+      "control_mode": 1,
+      "duty_cycle_limit": 0.1,
       "id": 9,
       "inverted": false,
-      "control_mode": 1,
-      "rpm_limit": 1000.0,
-      "duty_cycle_limit": 0.1
+      "name": "Grip",
+      "rpm_limit": 1000.0
     }
   ]
 }

@@ -324,8 +324,8 @@ bool VESC::get_telemetry(VESCData& out) {
     if (payload.size() < 29 || payload[0] != 4) return false;
 
     // Offsets from official VESC firmware
-    auto get_i16 = [&](int i) {
-        return (payload[i] << 8) | payload[i+1];
+    auto get_i16 = [&](int i) -> int16_t {
+        return static_cast<int16_t>((static_cast<uint16_t>(payload[i]) << 8) | payload[i+1]);
     };
 
     auto get_i32 = [&](int i) -> int32_t {
