@@ -72,7 +72,7 @@ class BodyNode : public rclcpp::Node{
                     RCLCPP_INFO(this->get_logger(), "Right motor connected.");
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to right motor.");
-                }/*
+                }
                 if(leftFlipperMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Flipper Trasero connected.");
                 } else {
@@ -82,7 +82,7 @@ class BodyNode : public rclcpp::Node{
                     RCLCPP_INFO(this->get_logger(), "Flipper Delantero connected.");
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to Flipper Delantero.");
-                }*/
+                }
 
                 config_update_sub_ = create_subscription<robot_msgs::msg::MotorConfig>(
                     "/robot_config/update", 10,
@@ -187,7 +187,7 @@ class BodyNode : public rclcpp::Node{
     }
 
     void driveFrontFlipper(){   // flipper delantero ← right joystick Y
-        if (rightFlipperMotor.isConnected()) {
+        if (!rightFlipperMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Flipper Delantero disconnected, reconnecting...");
             rightFlipperMotor.autoConnect();
             return;
@@ -208,7 +208,7 @@ class BodyNode : public rclcpp::Node{
     }
 
     void driveRearFlipper(){    // flipper trasero ← right joystick X
-        if (leftFlipperMotor.isConnected()) {
+        if (!leftFlipperMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Flipper Trasero disconnected, reconnecting...");
             leftFlipperMotor.autoConnect();
             return;

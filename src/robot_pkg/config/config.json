@@ -16,24 +16,24 @@
     },
     {
       "control_mode": 1,
-      "duty_cycle_limit": 0.15000000596046448,
+      "duty_cycle_limit": 0.30000001192092896,
       "id": 3,
       "inverted": true,
       "name": "Track Izquierdo",
-      "rpm_limit": 0.0
+      "rpm_limit": 1500.0
     },
     {
       "control_mode": 1,
-      "duty_cycle_limit": 0.15000000596046448,
+      "duty_cycle_limit": 0.30000001192092896,
       "id": 5,
       "inverted": false,
       "name": "Track Derecho",
-      "rpm_limit": 0.0
+      "rpm_limit": 1500.0
     },
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.15000000596046448,
-      "id": 0,
+      "id": 4,
       "inverted": false,
       "name": "Flipper Delantero",
       "rpm_limit": 1500.0
@@ -41,7 +41,7 @@
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.1,
-      "id": 4,
+      "id": 0,
       "inverted": false,
       "name": "Cadera",
       "rpm_limit": 3000.0
