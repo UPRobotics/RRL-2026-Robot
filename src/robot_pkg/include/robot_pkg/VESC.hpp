@@ -27,6 +27,7 @@ struct VESCData {
     int32_t tachometer = 0;
     int32_t tachometer_abs = 0;
     uint8_t fault_code = 0;
+    float   position   = 0.0f;   // degrees
     std::vector<uint8_t> raw_data;
 };
 
@@ -38,7 +39,12 @@ class VESC{
         int timeout;
         std::unique_ptr<LibSerial::SerialPort> serial_port_;
         bool running = false;
+        std::recursive_mutex port_mutex_;
         rclcpp::Logger logger;
+
+        // Shared across all VESC instances — prevents two motors from scanning
+        // the same port simultaneously during autoConnect()
+        static std::mutex scan_mutex_;
         
         void setupPort();
         
@@ -54,10 +60,12 @@ class VESC{
         void disconnect();
         bool autoConnect();
         bool isConnected();
+        void setId(uint8_t id);
         
         // Write data to the VESC
         void send_vesc_packet(const std::vector<uint8_t> &payload);
         void set_rpm(int32_t rpm);
+        void set_duty_cycle(float duty);   // duty in [-1.0, 1.0]
         void request_values();
         std::vector<uint8_t> read_bytes();
         bool get_telemetry(VESCData &out);

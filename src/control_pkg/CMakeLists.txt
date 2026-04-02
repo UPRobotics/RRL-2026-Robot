@@ -10,6 +10,7 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(robot_msgs REQUIRED)
 
 # ---------- JOYSTICK NODE ----------
 add_executable(joystick_node
@@ -26,6 +27,7 @@ ament_target_dependencies(joystick_node
   std_msgs
   geometry_msgs
   sensor_msgs
+  robot_msgs
 )
 
 install(TARGETS joystick_node

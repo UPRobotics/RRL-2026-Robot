@@ -75,13 +75,13 @@
         <initialPeersList>
           <locator>
             <udpv4>
-              <address>ROBOT_IP</address>   <!-- p.ej. 192.168.1.100 -->
+              <address>192.168.0.254</address>   <!-- p.ej. 192.168.1.100 -->
               <port>7412</port>
             </udpv4>
           </locator>
           <locator>
             <udpv4>
-              <address>STATION_IP</address> <!-- p.ej. 192.168.1.200 -->
+              <address>192.168.0.255</address> <!-- p.ej. 192.168.1.200 -->
               <port>7412</port>
             </udpv4>
           </locator>

@@ -174,15 +174,21 @@ void MainWindow::onTelemetryReceived(const std_msgs::msg::String::SharedPtr msg)
         int idx = mj.value("config_index", -1);
         if (idx < 0 || idx >= NUM_MOTORS) continue;
         auto& m = m_motors[idx];
-        m.config_index  = idx;
-        m.motor_id      = mj.value("motor_id", (uint8_t)0);
-        m.motor_name    = mj.value("motor_name", std::string(""));
-        m.rpm           = mj.value("rpm", (int32_t)0);
-        m.duty_cycle    = mj.value("duty_cycle", 0.0f);
-        m.voltage       = mj.value("voltage", 0.0f);
-        m.control_mode  = mj.value("control_mode", (uint8_t)0);
-        m.inverted      = mj.value("inverted", false);
-        m.received      = true;
+        m.config_index     = idx;
+        m.motor_id         = mj.value("motor_id", (uint8_t)0);
+        m.motor_name       = mj.value("motor_name", std::string(""));
+        m.rpm              = mj.value("rpm", (int32_t)0);
+        m.duty_cycle       = mj.value("duty_cycle", 0.0f);
+        m.voltage          = mj.value("voltage", 0.0f);
+        m.control_mode     = mj.value("control_mode", (uint8_t)0);
+        m.inverted         = mj.value("inverted", false);
+        m.current_in       = mj.value("current_in", 0.0f);
+        m.current_motor    = mj.value("current_motor", 0.0f);
+        m.position         = mj.value("position", 0.0f);
+        m.fault_code       = mj.value("fault_code", (uint8_t)0);
+        m.rpm_limit        = mj.value("rpm_limit", 0.0f);
+        m.duty_cycle_limit = mj.value("duty_cycle_limit", 0.0f);
+        m.received         = true;
     }
 }
 
@@ -386,8 +392,8 @@ void MainWindow::handleMouseClick(int mx, int my)
                 // Load current values as starting edit values
                 std::lock_guard<std::mutex> lock(m_motorMutex);
                 const auto& m = m_motors[card.configIndex];
-                m_editRpmLimit       = static_cast<float>(std::abs(m.rpm));
-                m_editDutyCycleLimit = m.duty_cycle;
+                m_editRpmLimit       = m.rpm_limit;
+                m_editDutyCycleLimit = m.duty_cycle_limit;
                 m_editControlMode    = m.control_mode;
                 m_editInverted       = m.inverted;
             }
@@ -558,6 +564,39 @@ void MainWindow::renderMotorCard(int x, int y, int w, int h,
     int invBadgeW = 80;
     drawFilledRect(lx, ty, invBadgeW, badgeH, invBg);
     drawText(lx + 6, ty + 2, invStr, Colors::TEXT_DARK, m_font14);
+    ty += 28;
+
+    // Current draw (side by side)
+    std::snprintf(buf, sizeof(buf), "I_in: %.1fA", motor.current_in);
+    drawText(lx, ty, buf, Colors::TEXT, m_font12);
+    std::snprintf(buf, sizeof(buf), "I_mot: %.1fA", motor.current_motor);
+    drawText(lx + w / 2 - 10, ty, buf, Colors::TEXT, m_font12);
+    ty += 16;
+
+    // Position
+    std::snprintf(buf, sizeof(buf), "Pos: %.1f deg", motor.position);
+    drawText(lx, ty, buf, Colors::TEXT, m_font12);
+    ty += 16;
+
+    // Configured limits
+    std::snprintf(buf, sizeof(buf), "Lim: %.0f RPM / %.2f duty", motor.rpm_limit, motor.duty_cycle_limit);
+    drawText(lx, ty, buf, Colors::STAT_LABEL, m_font12);
+    ty += 16;
+
+    // Fault code (only if non-zero)
+    if (motor.fault_code != 0) {
+        const char* faultStr = "UNKNOWN";
+        switch (motor.fault_code) {
+            case 1: faultStr = "OVER_VOLTAGE"; break;
+            case 2: faultStr = "UNDER_VOLTAGE"; break;
+            case 3: faultStr = "DRV"; break;
+            case 4: faultStr = "ABS_OVER_CURRENT"; break;
+            case 5: faultStr = "OVER_TEMP_FET"; break;
+            case 6: faultStr = "OVER_TEMP_MOTOR"; break;
+        }
+        std::snprintf(buf, sizeof(buf), "FAULT: %s", faultStr);
+        drawText(lx, ty, buf, Colors::STAT_CRIT, m_font12);
+    }
 }
 
 void MainWindow::renderSidebar(int x, int y, int w, int h)
@@ -655,6 +694,48 @@ void MainWindow::renderSidebar(int x, int y, int w, int h)
         std::snprintf(buf, sizeof(buf), "%.1fV", m.voltage);
         drawText(px + barMaxW + 4, py - 2, buf, Colors::STAT_LABEL, m_font12);
         py += 16;
+    }
+
+    // Separator
+    if (py + 60 < y + h) {
+        SDL_RenderDrawLine(m_renderer, px, py, x + w - 10, py);
+        py += 10;
+
+        drawText(px, py, "CURRENT DRAW", Colors::TEXT, m_font14);
+        py += 22;
+
+        float totalCurrent = 0.0f;
+        for (int i = 0; i < NUM_MOTORS; ++i) {
+            if (localMotors[i].received)
+                totalCurrent += localMotors[i].current_in;
+        }
+
+        std::snprintf(buf, sizeof(buf), "Total: %.1f A", totalCurrent);
+        drawText(px, py, buf, Colors::ACCENT_BLUE, m_font16);
+        py += 24;
+
+        // Per-motor current bars
+        float maxCurrent = 20.0f;
+        for (int i = 0; i < NUM_MOTORS; ++i) {
+            if (py + 30 > y + h) break;
+            const auto& m = localMotors[i];
+            if (!m.received) continue;
+
+            drawText(px, py, m.motor_name, Colors::TEXT, m_font12);
+            py += 16;
+
+            float pct = std::min(1.0f, m.current_in / maxCurrent);
+            int barW = static_cast<int>(pct * barMaxW);
+            SDL_Color barColor = (m.current_in < 5.0f) ? Colors::STAT_GOOD :
+                                 (m.current_in < 12.0f) ? Colors::STAT_WARN : Colors::STAT_CRIT;
+
+            drawFilledRect(px, py, barW, 8, barColor);
+            drawFilledRect(px + barW, py, barMaxW - barW, 8, Colors::BORDER);
+
+            std::snprintf(buf, sizeof(buf), "%.1fA", m.current_in);
+            drawText(px + barMaxW + 4, py - 2, buf, Colors::STAT_LABEL, m_font12);
+            py += 16;
+        }
     }
 }
 

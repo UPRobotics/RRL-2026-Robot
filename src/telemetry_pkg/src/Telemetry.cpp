@@ -123,14 +123,20 @@ class Telemetry_publisher : public rclcpp::Node{
                 if (!motorReceived_[i]) continue;
                 const auto& m = latestTelemetry_[i];
                 j["motors"].push_back({
-                    {"config_index",  i},
-                    {"motor_id",      m.motor_id},
-                    {"motor_name",    m.motor_name},
-                    {"rpm",           m.rpm},
-                    {"duty_cycle",    m.duty_cycle},
-                    {"voltage",       m.voltage},
-                    {"control_mode",  m.control_mode},
-                    {"inverted",      m.inverted}
+                    {"config_index",     i},
+                    {"motor_id",         m.motor_id},
+                    {"motor_name",       m.motor_name},
+                    {"rpm",              m.rpm},
+                    {"duty_cycle",       m.duty_cycle},
+                    {"voltage",          m.voltage},
+                    {"control_mode",     m.control_mode},
+                    {"inverted",         m.inverted},
+                    {"current_in",       m.current_in},
+                    {"position",         m.position},
+                    {"fault_code",       m.fault_code},
+                    {"current_motor",    m.current_motor},
+                    {"rpm_limit",        m.rpm_limit},
+                    {"duty_cycle_limit", m.duty_cycle_limit}
                 });
             }
         }
