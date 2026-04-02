@@ -10,11 +10,11 @@ from collections import defaultdict
 
 # SERIAL PORTS CONFIGURATION - Edit this section to add/remove motors
 SERIAL_PORTS = {
-    "/dev/ttyACM0": {
+    "/dev/ttyACM1": {
         "direction": 1, 
-        "target_rpm": 1000,
+        "target_rpm": 0,
         "control_mode": "duty_cycle",  # "rpm" o "duty_cycle"
-        "target_duty_cycle": 0.1  # Solo usado si control_mode es "duty_cycle", valor entre -1.0 y 1.0
+        "target_duty_cycle": 0.0  # Solo usado si control_mode es "duty_cycle", valor entre -1.0 y 1.0
     },
     # Ejemplo con duty cycle:
     # "/dev/ttyACM6": {

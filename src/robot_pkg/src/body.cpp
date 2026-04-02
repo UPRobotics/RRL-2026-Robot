@@ -35,32 +35,29 @@ struct MotorSettings {
 
 class BodyNode : public rclcpp::Node{
     public:
-        int leftMotorId    = 0;   // Track Izquierdo  VESC ID 0
-        int rightMotorId   = 1;   // Track Derecho    VESC ID 1
-        int leftFlipperId  = 2;   // Flipper Trasero  VESC ID 2
-        int rightFlipperId = 3;   // Flipper Delantero VESC ID 3
 
         BodyNode() : Node("body_node"),
             leftMotor(
-                declare_parameter<uint8_t>("left_id", leftMotorId),
+                declare_parameter<uint8_t>("left_id", left_.vesc_id),
                 declare_parameter<int>("left_baudrate", 115200),
                 declare_parameter<int>("left_timeout", 1000)),
                 
             rightMotor(
-                declare_parameter<uint8_t>("right_id", rightMotorId),
+                declare_parameter<uint8_t>("right_id", right_.vesc_id),
                 declare_parameter<int>("right_baudrate", 115200),
                 declare_parameter<int>("right_timeout", 1000)),
             leftFlipperMotor(
-                declare_parameter<uint8_t>("left_flipper_id", leftFlipperId),
+                declare_parameter<uint8_t>("left_flipper_id", left_flipper_.vesc_id),
                 declare_parameter<int>("left_flipper_baudrate", 115200),
                 declare_parameter<int>("left_flipper_timeout", 1000)),
             rightFlipperMotor(
-                declare_parameter<uint8_t>("right_flipper_id", rightFlipperId),
+                declare_parameter<uint8_t>("right_flipper_id", right_flipper_.vesc_id),
                 declare_parameter<int>("right_flipper_baudrate", 115200),
                 declare_parameter<int>("right_flipper_timeout", 1000))
                 {
 
                 loadConfig();
+
                 leftMotor.setId(left_.vesc_id);
                 rightMotor.setId(right_.vesc_id);
                 leftFlipperMotor.setId(left_flipper_.vesc_id);
@@ -75,7 +72,7 @@ class BodyNode : public rclcpp::Node{
                     RCLCPP_INFO(this->get_logger(), "Right motor connected.");
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to right motor.");
-                }
+                }/*
                 if(leftFlipperMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Flipper Trasero connected.");
                 } else {
@@ -85,7 +82,7 @@ class BodyNode : public rclcpp::Node{
                     RCLCPP_INFO(this->get_logger(), "Flipper Delantero connected.");
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to Flipper Delantero.");
-                }
+                }*/
 
                 config_update_sub_ = create_subscription<robot_msgs::msg::MotorConfig>(
                     "/robot_config/update", 10,
@@ -190,7 +187,7 @@ class BodyNode : public rclcpp::Node{
     }
 
     void driveFrontFlipper(){   // flipper delantero ← right joystick Y
-        if (!rightFlipperMotor.isConnected()) {
+        if (rightFlipperMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Flipper Delantero disconnected, reconnecting...");
             rightFlipperMotor.autoConnect();
             return;
@@ -211,7 +208,7 @@ class BodyNode : public rclcpp::Node{
     }
 
     void driveRearFlipper(){    // flipper trasero ← right joystick X
-        if (!leftFlipperMotor.isConnected()) {
+        if (leftFlipperMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Flipper Trasero disconnected, reconnecting...");
             leftFlipperMotor.autoConnect();
             return;
