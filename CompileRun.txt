@@ -2,9 +2,9 @@ cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
 rm -rf build/robot_pkg install/robot_pkg
 colcon build --packages-select robot_pkg
 
-colcon build --packages-select robot_pkg --symlink-install
 
-source /opt/ros/humble/setup.bash
+    source /opt/ros/humble/setup.bash
+colcon build --packages-select robot_pkg --symlink-install
 
 
 RUn this one per terminal

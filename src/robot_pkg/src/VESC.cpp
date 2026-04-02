@@ -115,8 +115,6 @@ bool VESC::autoConnect() {
             
             setupPort();
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
             try {
                 serial_port_->FlushInputBuffer();
                 serial_port_->FlushIOBuffers();
@@ -133,7 +131,6 @@ bool VESC::autoConnect() {
             bool got_response = false;
             for (int attempt = 0; attempt < 3 && !got_response; ++attempt) {
                 if (attempt > 0) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
                     try { serial_port_->FlushInputBuffer(); } catch(...) {}
                 }
                 if (get_telemetry(data)) {
@@ -163,8 +160,6 @@ bool VESC::autoConnect() {
                 serial_port_.reset();
             }
         }
-        
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
     }
     
     RCLCPP_ERROR(logger, "Failed to find motor_id=%u after scanning all ports", motor_id);

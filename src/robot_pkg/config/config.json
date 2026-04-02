@@ -18,7 +18,7 @@
       "control_mode": 1,
       "duty_cycle_limit": 0.30000001192092896,
       "id": 3,
-      "inverted": true,
+      "inverted": false,
       "name": "Track Izquierdo",
       "rpm_limit": 1500.0
     },
@@ -26,7 +26,7 @@
       "control_mode": 1,
       "duty_cycle_limit": 0.30000001192092896,
       "id": 5,
-      "inverted": false,
+      "inverted": true,
       "name": "Track Derecho",
       "rpm_limit": 1500.0
     },
