@@ -520,7 +520,13 @@ void MainWindow::renderMotorCard(int x, int y, int w, int h,
     SDL_Color bg = selected ? Colors::CARD_SELECT : Colors::CARD_BG;
     drawFilledRect(x, y, w, h, bg);
 
-    if (selected) {
+    bool hasFault = (motor.fault_code != 0);
+    if (hasFault) {
+        // Blink at ~1 s cycle (500 ms on, 500 ms off)
+        bool blinkOn = ((SDL_GetTicks() / 500) % 2) == 0;
+        SDL_Color borderCol = blinkOn ? Colors::STAT_CRIT : Colors::CARD_BG;
+        drawBorderRect(x, y, w, h, borderCol);
+    } else if (selected) {
         drawBorderRect(x, y, w, h, Colors::ACCENT_BLUE);
     } else {
         drawBorderRect(x, y, w, h, Colors::BORDER);
@@ -544,20 +550,24 @@ void MainWindow::renderMotorCard(int x, int y, int w, int h,
     // Motor name — wrapped to card width
     ty += drawTextWrapped(lx, ty, maxTextW, motor.motor_name, Colors::TEXT, m_font16) + 4;
 
-    // Fault code — directly under motor name (only if non-zero)
-    if (motor.fault_code != 0) {
-        const char* faultStr = "UNKNOWN";
-        switch (motor.fault_code) {
-            case 1: faultStr = "OVER_VOLTAGE"; break;
-            case 2: faultStr = "UNDER_VOLTAGE"; break;
-            case 3: faultStr = "DRV"; break;
-            case 4: faultStr = "ABS_OVER_CURRENT"; break;
-            case 5: faultStr = "OVER_TEMP_FET"; break;
-            case 6: faultStr = "OVER_TEMP_MOTOR"; break;
+    // Fault code — always visible under motor name
+    {
+        const char* faultStr = "NO FAULT";
+        SDL_Color faultColor = Colors::STAT_GOOD;
+        if (motor.fault_code != 0) {
+            faultColor = Colors::STAT_CRIT;
+            switch (motor.fault_code) {
+                case 1: faultStr = "OVER_VOLTAGE";     break;
+                case 2: faultStr = "UNDER_VOLTAGE";    break;
+                case 3: faultStr = "DRV";              break;
+                case 4: faultStr = "ABS_OVER_CURRENT"; break;
+                case 5: faultStr = "OVER_TEMP_FET";    break;
+                case 6: faultStr = "OVER_TEMP_MOTOR";  break;
+                default: faultStr = "UNKNOWN";
+            }
         }
-        std::snprintf(buf, sizeof(buf), "FAULT: %s", faultStr);
-        drawText(lx, ty, buf, Colors::STAT_CRIT, m_font14);
-        ty += 20;
+        drawText(lx, ty, faultStr, faultColor, m_font12);
+        ty += 18;
     }
 
     // ID
@@ -565,16 +575,32 @@ void MainWindow::renderMotorCard(int x, int y, int w, int h,
     drawText(lx, ty, buf, Colors::STAT_LABEL, m_font12);
     ty += 20;
 
-    // RPM — color coded
+    // RPM bar (hardware limit: 0–30000)
+    int barW = w - 20;
     std::snprintf(buf, sizeof(buf), "RPM: %d", motor.rpm);
-    float rpmPct = std::min(100.0f, std::abs(motor.rpm) / 50.0f);
-    drawText(lx, ty, buf, getStatColor(rpmPct), m_font16);
-    ty += 24;
+    drawText(lx, ty, buf, Colors::TEXT, m_font14);
+    ty += 18;
+    {
+        float pct   = std::min(1.0f, std::abs(static_cast<float>(motor.rpm)) / 30000.0f);
+        int   fillW = static_cast<int>(pct * barW);
+        SDL_Color barCol = (motor.rpm >= 0) ? Colors::STAT_GOOD : Colors::STAT_CRIT;
+        drawFilledRect(lx, ty, fillW, 7, barCol);
+        drawFilledRect(lx + fillW, ty, barW - fillW, 7, Colors::BORDER);
+        ty += 11;
+    }
 
-    // Duty cycle
-    std::snprintf(buf, sizeof(buf), "Duty: %.2f", motor.duty_cycle);
-    drawText(lx, ty, buf, Colors::TEXT, m_font16);
-    ty += 24;
+    // Duty cycle bar (hardware limit: 0–1.0)
+    std::snprintf(buf, sizeof(buf), "Duty: %.3f", motor.duty_cycle);
+    drawText(lx, ty, buf, Colors::TEXT, m_font14);
+    ty += 18;
+    {
+        float pct   = std::min(1.0f, std::abs(motor.duty_cycle));
+        int   fillW = static_cast<int>(pct * barW);
+        SDL_Color barCol = (motor.duty_cycle >= 0.0f) ? Colors::STAT_GOOD : Colors::STAT_CRIT;
+        drawFilledRect(lx, ty, fillW, 7, barCol);
+        drawFilledRect(lx + fillW, ty, barW - fillW, 7, Colors::BORDER);
+        ty += 11;
+    }
 
     // Control mode badge
     const char* modeStr = (motor.control_mode == 0) ? "RPM" : "DUTY";
@@ -678,77 +704,44 @@ void MainWindow::renderSidebar(int x, int y, int w, int h)
     py += 10;
 
     drawText(px, py, "PER MOTOR", Colors::TEXT, m_font14);
-    py += 22;
+    py += 20;
 
-    // Per-motor voltage bars
-    int barMaxW = w - 40;
-    float maxVolt = 30.0f; // normalize to 30V scale
+    // Per-motor grouped bars: voltage + current per motor
+    // barMaxW leaves room for "XX.XA" / "XX.XV" label (170px bar + ~70px label = 240px < 260px sidebar)
+    int barMaxW = w - 90;
+    float maxVolt    = 30.0f;
+    float maxCurrent = 20.0f;
 
     for (int i = 0; i < NUM_MOTORS; ++i) {
-        if (py + 30 > y + h) break; // don't overflow sidebar
-
+        if (py + 50 > y + h) break;
         const auto& m = localMotors[i];
-        if (!m.received) continue;  // skip disconnected motors entirely
+        if (!m.received) continue;
 
-        // Full motor name — no truncation
+        // Motor name header
         drawText(px, py, m.motor_name, Colors::TEXT, m_font12);
-        py += 16;
+        py += 14;
 
         // Voltage bar
-        float pct = std::min(1.0f, m.voltage / maxVolt);
-        int barW = static_cast<int>(pct * barMaxW);
-        SDL_Color barColor = (m.voltage > 20.0f) ? Colors::STAT_GOOD :
-                             (m.voltage > 15.0f) ? Colors::STAT_WARN : Colors::STAT_CRIT;
+        float vPct  = std::min(1.0f, m.voltage / maxVolt);
+        int   vBarW = static_cast<int>(vPct * barMaxW);
+        SDL_Color vCol = (m.voltage > 20.0f) ? Colors::STAT_GOOD :
+                         (m.voltage > 15.0f) ? Colors::STAT_WARN : Colors::STAT_CRIT;
+        drawFilledRect(px, py, vBarW, 7, vCol);
+        drawFilledRect(px + vBarW, py, barMaxW - vBarW, 7, Colors::BORDER);
+        std::snprintf(buf, sizeof(buf), "%.1fV", m.voltage);
+        drawText(px + barMaxW + 4, py - 1, buf, Colors::STAT_LABEL, m_font12);
+        py += 11;
 
-        drawFilledRect(px, py, barW, 8, barColor);
-        drawFilledRect(px + barW, py, barMaxW - barW, 8, Colors::BORDER);
-
-        // Voltage value
-        std::snprintf(buf, sizeof(buf), "%.2fV", m.voltage);
-        drawText(px + barMaxW + 4, py - 2, buf, Colors::STAT_LABEL, m_font12);
-        py += 16;
-    }
-
-    // Separator
-    if (py + 60 < y + h) {
-        SDL_RenderDrawLine(m_renderer, px, py, x + w - 10, py);
-        py += 10;
-
-        drawText(px, py, "CURRENT DRAW", Colors::TEXT, m_font14);
-        py += 22;
-
-        float totalCurrent = 0.0f;
-        for (int i = 0; i < NUM_MOTORS; ++i) {
-            if (localMotors[i].received)
-                totalCurrent += localMotors[i].current_in;
-        }
-
-        std::snprintf(buf, sizeof(buf), "Total: %.2f A", totalCurrent);
-        drawText(px, py, buf, Colors::ACCENT_BLUE, m_font16);
-        py += 24;
-
-        // Per-motor current bars
-        float maxCurrent = 20.0f;
-        for (int i = 0; i < NUM_MOTORS; ++i) {
-            if (py + 30 > y + h) break;
-            const auto& m = localMotors[i];
-            if (!m.received) continue;
-
-            drawText(px, py, m.motor_name, Colors::TEXT, m_font12);
-            py += 16;
-
-            float pct = std::min(1.0f, m.current_in / maxCurrent);
-            int barW = static_cast<int>(pct * barMaxW);
-            SDL_Color barColor = (m.current_in < 5.0f) ? Colors::STAT_GOOD :
-                                 (m.current_in < 12.0f) ? Colors::STAT_WARN : Colors::STAT_CRIT;
-
-            drawFilledRect(px, py, barW, 8, barColor);
-            drawFilledRect(px + barW, py, barMaxW - barW, 8, Colors::BORDER);
-
-            std::snprintf(buf, sizeof(buf), "%.2fA", m.current_in);
-            drawText(px + barMaxW + 4, py - 2, buf, Colors::STAT_LABEL, m_font12);
-            py += 16;
-        }
+        // Current bar
+        float cPct  = std::min(1.0f, m.current_in / maxCurrent);
+        int   cBarW = static_cast<int>(cPct * barMaxW);
+        SDL_Color cCol = (m.current_in < 5.0f) ? Colors::STAT_GOOD :
+                         (m.current_in < 12.0f) ? Colors::STAT_WARN : Colors::STAT_CRIT;
+        drawFilledRect(px, py, cBarW, 7, cCol);
+        drawFilledRect(px + cBarW, py, barMaxW - cBarW, 7, Colors::BORDER);
+        std::snprintf(buf, sizeof(buf), "%.1fA", m.current_in);
+        drawText(px + barMaxW + 4, py - 1, buf, Colors::STAT_LABEL, m_font12);
+        py += 14;
     }
 
     SDL_RenderSetClipRect(m_renderer, nullptr);
