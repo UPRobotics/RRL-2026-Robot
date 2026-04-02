@@ -283,26 +283,35 @@ void VESC::request_values() {
     send_vesc_packet(payload);
 }
 
-std::vector<uint8_t> VESC::read_bytes() { // TODO: Main change, check if it works with this one
-    std::vector<uint8_t> buffer;
-    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
-    if (!isConnected()) return buffer;
+  std::vector<uint8_t> VESC::read_bytes() {                                                                                                                                                                 
+      std::vector<uint8_t> buffer;                                                                                                                                                                          
+      std::lock_guard<std::recursive_mutex> lk(port_mutex_);
+      if (!isConnected()) return buffer;                                                                                                                                                                    
+                                                                                                                                                                                                            
+      try {
+          char byte;                                                                                                                                                                                        
+          // Read start byte                                                                                                                                                                              
+          serial_port_->ReadByte(byte, timeout);
+          if (static_cast<uint8_t>(byte) != 0x02) return buffer;                                                                                                                                            
+          buffer.push_back(static_cast<uint8_t>(byte));
+                                                                                                                                                                                                            
+          // Read length                                                                                                                                                                                  
+          serial_port_->ReadByte(byte, timeout);                                                                                                                                                            
+          uint8_t length = static_cast<uint8_t>(byte);                                                                                                                                                    
+          buffer.push_back(length);                                                                                                                                                                         
+   
+          // Read payload + 2 CRC bytes + end byte                                                                                                                                                          
+          for (int i = 0; i < length + 3; i++) {                                                                                                                                                          
+              serial_port_->ReadByte(byte, timeout);                                                                                                                                                        
+              buffer.push_back(static_cast<uint8_t>(byte));
+          }                                                                                                                                                                                                 
+      } catch (const ReadTimeout&) {                                                                                                                                                                        
+      } catch (...) {
+          running = false;                                                                                                                                                                                  
+      }                                                                                                                                                                                                   
+      return buffer;                                                                                                                                                                                        
+  }
 
-    try {
-        // Read until we hit the end byte '3' or timeout
-        char byte;
-        while (true) {
-            serial_port_->ReadByte(byte, timeout);
-            buffer.push_back(static_cast<uint8_t>(byte));
-            if (byte == 3 && buffer.size() > 5) break; 
-        }
-    } catch (const ReadTimeout&) {
-        // Normal behavior if VESC is slow or packet ends
-    } catch (...) {
-        running = false;
-    }
-    return buffer;
-}
 
 bool VESC::get_telemetry(VESCData& out) {
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);

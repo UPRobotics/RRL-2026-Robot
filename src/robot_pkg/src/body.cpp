@@ -37,12 +37,12 @@ class BodyNode : public rclcpp::Node{
 
         BodyNode() : Node("body_node"),
             leftMotor(
-                declare_parameter<uint8_t>("left_id", 5),
+                declare_parameter<uint8_t>("left_id", left_.vesc_id),
                 declare_parameter<int>("left_baudrate", 115200),
                 declare_parameter<int>("left_timeout", 1000)),
                 
             rightMotor(
-                declare_parameter<uint8_t>("right_id", 3),
+                declare_parameter<uint8_t>("right_id", right_.vesc_id),
                 declare_parameter<int>("right_baudrate", 115200),
                 declare_parameter<int>("right_timeout", 1000)),
             leftFlipperMotor(
@@ -57,11 +57,16 @@ class BodyNode : public rclcpp::Node{
 
                 loadConfig();
 
-                /*if(leftMotor.autoConnect()){
+                leftMotor.setId(left_.vesc_id);
+                rightMotor.setId(right_.vesc_id);
+                leftFlipperMotor.setId(left_flipper_.vesc_id);
+                rightFlipperMotor.setId(right_flipper_.vesc_id);
+
+                if(leftMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Left motor connected.");
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to left motor.");
-                }*/
+                }
                 if(rightMotor.autoConnect()){
                     RCLCPP_INFO(this->get_logger(), "Right motor connected.");
                 } else {
@@ -137,7 +142,7 @@ class BodyNode : public rclcpp::Node{
     private:
 
     void driveLeft(){
-        if (false && !leftMotor.isConnected()) {
+        if (!leftMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Left motor disconnected, reconnecting...");
             leftMotor.autoConnect();
             return;
