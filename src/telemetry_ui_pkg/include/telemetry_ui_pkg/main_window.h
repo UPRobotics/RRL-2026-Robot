@@ -119,6 +119,8 @@ private:
                     const std::string& label, SDL_Color bg, TTF_Font* fnt);
     void drawTextBox(int x, int y, int w, int h,
                      const std::string& text, bool focused, TTF_Font* fnt);
+    int  drawTextWrapped(int x, int y, int maxW, const std::string& text,
+                         SDL_Color color, TTF_Font* fnt);
 
     // Window properties
     int           m_width;
@@ -141,7 +143,7 @@ private:
     static constexpr int FOOTER_H    = 70;
     static constexpr int STAT_PAD    = 15;
     static constexpr int SIDEBAR_W   = 260;
-    static constexpr int EDIT_PANEL_H = 140;
+    static constexpr int EDIT_PANEL_H = 110;
     static constexpr int CARD_PAD    = 8;
 
     // System telemetry thread
@@ -169,7 +171,6 @@ private:
 
     // UI state
     int  m_selectedMotor   = -1;   // config_index of selected motor (-1 = none)
-    bool m_editPanelOpen   = false;
     int  m_lastClickX      = 0;
     int  m_lastClickY      = 0;
 
