@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <atomic>
 
 struct VESCData {
     float temp_fet = 0.0f;
@@ -39,6 +40,7 @@ class VESC{
         int timeout;
         std::unique_ptr<LibSerial::SerialPort> serial_port_;
         bool running = false;
+        std::atomic<bool> connected_{false};
         std::recursive_mutex port_mutex_;
         rclcpp::Logger logger;
 

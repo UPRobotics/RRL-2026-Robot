@@ -41,14 +41,17 @@ bool VESC::connect() {
         setupPort();
         serial_port_->FlushIOBuffers();
         running = true;
+        connected_ = true;
         return true;
     } catch (const std::exception& e) {
         RCLCPP_ERROR(logger, "Connection failed: %s", e.what());
+        connected_ = false;
         return false;
     }
 }
 
 void VESC::disconnect() {
+    connected_ = false;  // visible immediately, before acquiring the lock
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     running = false;
     if (!serial_port_) return;
@@ -62,17 +65,7 @@ void VESC::disconnect() {
 }
 
 bool VESC::isConnected(){
-    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
-    if (!running || !serial_port_)
-        return false;
-    try{
-        return serial_port_->IsOpen();
-    }catch(const std::exception& e){
-        RCLCPP_DEBUG(logger, "IsOpen() threw exception: %s", e.what());
-        return false;
-    }catch(...){
-        return false;
-    }
+    return connected_.load();
 }
 
 std::vector<std::string> scanPorts(){
@@ -93,6 +86,7 @@ void VESC::setId(uint8_t id) {
 }
 
 bool VESC::autoConnect() {
+    connected_ = false;  // telemetry callbacks see this immediately, skip this motor
     std::lock_guard<std::mutex> scan_lk(scan_mutex_);
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     
@@ -139,6 +133,7 @@ bool VESC::autoConnect() {
                         port.c_str(), attempt + 1, data.motor_controller_id, motor_id);
                     if (data.motor_controller_id == motor_id) {
                         port_name = port;
+                        connected_ = true;
                         RCLCPP_INFO(logger, "Motor ID=%u matched on port %s", motor_id, port.c_str());
                         return true;
                     }
@@ -311,6 +306,7 @@ void VESC::request_values() {
 
 
 bool VESC::get_telemetry(VESCData& out) {
+    if (!connected_) return false;  // fast path — no lock, no blocking during autoConnect()
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     request_values();
     if (!running) return false;
