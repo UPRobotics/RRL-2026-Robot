@@ -49,7 +49,8 @@ class VESC{
         static std::mutex scan_mutex_;
         
         void setupPort();
-        
+        bool get_telemetry_(VESCData& out);  // implementation; no connected_ check, caller must hold port_mutex_
+
         // Métodos estáticos
         static uint16_t crc16(const std::vector<uint8_t>& data, uint16_t poly = 0x1021, uint16_t init_val = 0);
         static std::vector<uint8_t> find_packet(const std::vector<uint8_t>& response);

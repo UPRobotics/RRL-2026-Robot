@@ -238,9 +238,12 @@ Key packet IDs:
 - `0x05` — COMM_SET_DUTY (int32 = duty × 100000, big-endian)
 - `0x08` — COMM_SET_RPM (int32, big-endian)
 
-Telemetry response offsets (COMM_GET_VALUES reply):
-- `[9:13]` current_in (÷100 → A), `[21:23]` duty (÷1000), `[23:27]` RPM,
-  `[27:29]` voltage (÷10 → V), `[53]` fault_code
+Telemetry response offsets (COMM_GET_VALUES payload, 0-based after cmd byte):
+- `[1-2]` temp_fet (÷10 → °C), `[5-8]` current_motor (÷100 → A),
+  `[9-12]` current_in (÷100 → A), `[21-22]` duty (÷1000),
+  `[23-26]` RPM (i32), `[27-28]` input_voltage (÷10 → V),
+  `[53]` fault_code, `[54-57]` position (÷1000000 → deg), `[58]` motor_controller_id
+- Minimum payload for full data: ≥59 bytes (check `payload[0] == 0x04`)
 
 ---
 
