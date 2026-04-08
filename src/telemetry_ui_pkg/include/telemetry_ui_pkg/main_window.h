@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <set>
 #include <vector>
 
 namespace telemetry_ui {
@@ -61,6 +62,11 @@ struct MotorData {
     float       duty_cycle_limit = 0.0f;
 };
 
+struct GroupDef {
+    std::string      name;
+    std::vector<int> configIndices;
+};
+
 // -------------------------------------------------------
 // MainWindow
 // -------------------------------------------------------
@@ -92,13 +98,21 @@ private:
                          const MotorData& motor, bool selected);
     void renderSidebar(int x, int y, int w, int h);
     void renderEditPanel(int x, int y, int w, int h);
+    void renderGroupCard(int x, int y, int w, int h,
+                         const GroupDef& group,
+                         const std::array<MotorData, NUM_MOTORS>& motors,
+                         int selectionState);  // 0=none, 1=partial, 2=full
 
     // ROS2 callbacks
     void onTelemetryReceived(const std_msgs::msg::String::SharedPtr msg);
     void publishConfigUpdate(int configIndex);
+    void publishConfigToSelection();
+    bool getCommonEditValues(const std::array<MotorData, NUM_MOTORS>& motors,
+                             bool& rpmSame, bool& dutySame,
+                             bool& modeSame, bool& invSame) const;
 
     // Mouse handling
-    void handleMouseClick(int mx, int my);
+    void handleMouseClick(int mx, int my, bool ctrlHeld = false);
 
     // Telemetry background thread (system stats)
     void  startTelemetry();
@@ -145,6 +159,7 @@ private:
     static constexpr int SIDEBAR_W   = 260;
     static constexpr int EDIT_PANEL_H = 110;
     static constexpr int CARD_PAD    = 8;
+    static constexpr int GROUP_ROW_H = 72;
 
     // System telemetry thread
     std::thread        m_telemetryThread;
@@ -170,7 +185,7 @@ private:
     std::array<MotorData, NUM_MOTORS> m_motors;
 
     // UI state
-    int  m_selectedMotor   = -1;   // config_index of selected motor (-1 = none)
+    std::set<int> m_selectedMotors;  // config_indices of selected motors (empty = none)
     int  m_lastClickX      = 0;
     int  m_lastClickY      = 0;
 
@@ -191,6 +206,9 @@ private:
     // Cached layout rects for hit testing (updated each frame)
     struct CardRect { int x, y, w, h; int configIndex; };
     std::vector<CardRect> m_cardRects;
+
+    struct GroupCardRect { int x, y, w, h; int groupIndex; };
+    std::vector<GroupCardRect> m_groupCardRects;
 
     struct ButtonRect { int x, y, w, h; int action; };
     std::vector<ButtonRect> m_editButtons;
