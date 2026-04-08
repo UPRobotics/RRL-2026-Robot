@@ -4,6 +4,7 @@ detections/
 build/
 install/
 log/
+setup_local.sh
 
 # Vosk models (downloaded by install scripts)
 models/
