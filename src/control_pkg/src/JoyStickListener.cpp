@@ -23,15 +23,15 @@ public:
         mode_pub_ = create_publisher<std_msgs::msg::UInt8>(
             "/robot/mode", CONTROL_QOS);
 
-        RCLCPP_INFO(get_logger(), "Joystick node started. Mode: MOVEMENT (0). Toggle: buttons[9].");
+        RCLCPP_INFO(get_logger(), "Joystick node started. Mode: MOVEMENT (0). Toggle: B button.");
     }
 
 private:
     void onJoy(const sensor_msgs::msg::Joy::SharedPtr msg) {
-        if (msg->axes.size() < 8 || msg->buttons.size() < 10) return;
+        if (msg->axes.size() < 8 || msg->buttons.size() < 6) return;
 
-        // Rising-edge detection for mode toggle (buttons[9] = Start/Options)
-        bool mode_btn = (msg->buttons[9] != 0);
+        // Rising-edge detection for mode toggle (buttons[1] = B on Xbox)
+        bool mode_btn = (msg->buttons[1] != 0);
         if (mode_btn && !prev_mode_btn_) {
             mode_ = (mode_ == 0) ? 1 : 0;
             std_msgs::msg::UInt8 m;
@@ -57,6 +57,8 @@ private:
         out.trigger_right = normTrigger(msg->axes[5]);
         out.dpad_x        = msg->axes[6];
         out.dpad_y        = msg->axes[7];
+        out.bumper_left   = (msg->buttons.size() > 4 && msg->buttons[4] != 0);
+        out.bumper_right  = (msg->buttons.size() > 5 && msg->buttons[5] != 0);
         ctrl_pub_->publish(out);
     }
 

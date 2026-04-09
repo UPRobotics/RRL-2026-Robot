@@ -7,3 +7,5 @@ float32 trigger_left    # normalized: 0=not pressed, 1=fully pressed
 float32 trigger_right
 float32 dpad_x          # -1=left, +1=right
 float32 dpad_y          # +1=up,  -1=down
+bool    bumper_left     # L1
+bool    bumper_right    # R1

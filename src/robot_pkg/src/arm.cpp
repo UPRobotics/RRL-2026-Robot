@@ -165,12 +165,16 @@ ArmNode() : Node("arm_node"),
                     target_pitch_.store(
                         std::clamp(msg->trigger_right - msg->trigger_left, -1.0f, 1.0f),
                         std::memory_order_relaxed);
+                    target_claw_.store(
+                        msg->bumper_right ? 1.0f : (msg->bumper_left ? -1.0f : 0.0f),
+                        std::memory_order_relaxed);
                 } else {  // MOVEMENT mode: zero all arm targets
                     target_hip_.store(0.0f,      std::memory_order_relaxed);
                     target_shoulder_.store(0.0f, std::memory_order_relaxed);
                     target_elbow_.store(0.0f,    std::memory_order_relaxed);
                     target_roll_.store(0.0f,     std::memory_order_relaxed);
                     target_pitch_.store(0.0f,    std::memory_order_relaxed);
+                    target_claw_.store(0.0f,     std::memory_order_relaxed);
                 }
             });
 
