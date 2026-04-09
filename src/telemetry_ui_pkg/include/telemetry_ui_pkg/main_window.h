@@ -5,6 +5,8 @@
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <robot_msgs/msg/motor_config.hpp>
+#include <robot_msgs/msg/d_pad_config.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 #include <atomic>
 #include <array>
 #include <cstdint>
@@ -107,6 +109,7 @@ private:
     void onTelemetryReceived(const std_msgs::msg::String::SharedPtr msg);
     void publishConfigUpdate(int configIndex);
     void publishConfigToSelection();
+    void publishDPadConfig();
     bool getCommonEditValues(const std::array<MotorData, NUM_MOTORS>& motors,
                              bool& rpmSame, bool& dutySame,
                              bool& modeSame, bool& invSame) const;
@@ -179,6 +182,9 @@ private:
     rclcpp::Node::SharedPtr m_rosNode;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_telemSub;
     rclcpp::Publisher<robot_msgs::msg::MotorConfig>::SharedPtr m_configPub;
+    rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr m_modeSub;
+    std::atomic<uint8_t> m_currentMode{0};  // 0=MOVEMENT, 1=ARM
+    rclcpp::Publisher<robot_msgs::msg::DPadConfig>::SharedPtr m_dpadConfigPub;
 
     // Motor data (written by ROS callback, read by render)
     std::mutex m_motorMutex;
@@ -196,10 +202,16 @@ private:
     bool    m_editInverted       = false;
 
     // Text input state for edit panel
-    enum FocusedField { FOCUS_NONE = 0, FOCUS_RPM, FOCUS_DUTY };
+    enum FocusedField { FOCUS_NONE = 0, FOCUS_RPM, FOCUS_DUTY, FOCUS_DPAD_RPM, FOCUS_DPAD_DUTY };
     FocusedField m_focusedField = FOCUS_NONE;
     std::string  m_rpmInputText;
     std::string  m_dutyInputText;
+
+    // D-pad config edit state
+    float       m_dpadRpmLimit  = 500.0f;
+    float       m_dpadDutyLimit = 0.10f;
+    std::string m_dpadRpmText;
+    std::string m_dpadDutyText;
     struct TextBoxRect { int x, y, w, h; FocusedField field; };
     std::vector<TextBoxRect> m_textBoxRects;
 

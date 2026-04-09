@@ -8,6 +8,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/MotorTelemetry.msg"
   "msg/MotorConfig.msg"
   "msg/JoystickAxes.msg"
+  "msg/ControlInput.msg"
+  "msg/DPadConfig.msg"
 )
 
 ament_export_dependencies(rosidl_default_runtime)

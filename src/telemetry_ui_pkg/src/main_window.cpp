@@ -1,5 +1,7 @@
 #include "telemetry_ui_pkg/main_window.h"
 #include "telemetry_ui_pkg/json.hpp"
+#include <robot_msgs/msg/d_pad_config.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -127,6 +129,18 @@ void MainWindow::setRosNode(rclcpp::Node::SharedPtr node)
         "/ground_station/motor_config", config_qos
     );
 
+    auto best_effort_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
+    m_modeSub = m_rosNode->create_subscription<std_msgs::msg::UInt8>(
+        "/robot/mode", best_effort_qos,
+        [this](const std_msgs::msg::UInt8::SharedPtr msg) {
+            m_currentMode.store(msg->data, std::memory_order_relaxed);
+        }
+    );
+
+    m_dpadConfigPub = m_rosNode->create_publisher<robot_msgs::msg::DPadConfig>(
+        "/ground_station/dpad_config", config_qos
+    );
+
     spdlog::info("ROS2 telemetry subscription and config publisher created");
 }
 
@@ -147,6 +161,8 @@ void MainWindow::shutdown()
 
     m_telemSub.reset();
     m_configPub.reset();
+    m_modeSub.reset();
+    m_dpadConfigPub.reset();
     m_rosNode.reset();
 
     if (m_font12) { TTF_CloseFont(m_font12); m_font12 = nullptr; }
@@ -222,6 +238,16 @@ void MainWindow::publishConfigToSelection()
         publishConfigUpdate(idx);
 }
 
+void MainWindow::publishDPadConfig()
+{
+    if (!m_dpadConfigPub) return;
+    robot_msgs::msg::DPadConfig msg;
+    msg.rpm_limit        = m_dpadRpmLimit;
+    msg.duty_cycle_limit = m_dpadDutyLimit;
+    m_dpadConfigPub->publish(msg);
+    spdlog::info("Published DPad config: rpm={:.0f} duty={:.3f}", m_dpadRpmLimit, m_dpadDutyLimit);
+}
+
 bool MainWindow::getCommonEditValues(
     const std::array<MotorData, NUM_MOTORS>& motors,
     bool& rpmSame, bool& dutySame, bool& modeSame, bool& invSame) const
@@ -291,7 +317,10 @@ void MainWindow::handleEvents()
 void MainWindow::handleTextInput(const char* text)
 {
     if (m_focusedField == FOCUS_NONE) return;
-    std::string& buf = (m_focusedField == FOCUS_RPM) ? m_rpmInputText : m_dutyInputText;
+    std::string& buf = (m_focusedField == FOCUS_RPM)       ? m_rpmInputText
+                     : (m_focusedField == FOCUS_DUTY)      ? m_dutyInputText
+                     : (m_focusedField == FOCUS_DPAD_RPM)  ? m_dpadRpmText
+                     :                                        m_dpadDutyText;
     // Only allow digits and decimal point
     for (const char* c = text; *c; ++c) {
         if ((*c >= '0' && *c <= '9') || *c == '.') {
@@ -303,7 +332,10 @@ void MainWindow::handleTextInput(const char* text)
 void MainWindow::handleKeyDown(SDL_Keycode key)
 {
     if (m_focusedField == FOCUS_NONE) return;
-    std::string& buf = (m_focusedField == FOCUS_RPM) ? m_rpmInputText : m_dutyInputText;
+    std::string& buf = (m_focusedField == FOCUS_RPM)       ? m_rpmInputText
+                     : (m_focusedField == FOCUS_DUTY)      ? m_dutyInputText
+                     : (m_focusedField == FOCUS_DPAD_RPM)  ? m_dpadRpmText
+                     :                                        m_dpadDutyText;
 
     if (key == SDLK_BACKSPACE && !buf.empty()) {
         buf.pop_back();
@@ -314,10 +346,17 @@ void MainWindow::handleKeyDown(SDL_Keycode key)
                 float val = std::stof(buf);
                 if (m_focusedField == FOCUS_RPM) {
                     m_editRpmLimit = roundf(std::max(0.0f, val) * 100.0f) / 100.0f;
-                } else {
+                    if (!m_selectedMotors.empty()) publishConfigToSelection();
+                } else if (m_focusedField == FOCUS_DUTY) {
                     m_editDutyCycleLimit = roundf(std::clamp(val, 0.0f, 1.0f) * 100.0f) / 100.0f;
+                    if (!m_selectedMotors.empty()) publishConfigToSelection();
+                } else if (m_focusedField == FOCUS_DPAD_RPM) {
+                    m_dpadRpmLimit = std::max(0.0f, val);
+                    publishDPadConfig();
+                } else if (m_focusedField == FOCUS_DPAD_DUTY) {
+                    m_dpadDutyLimit = std::clamp(val, 0.0f, 1.0f);
+                    publishDPadConfig();
                 }
-                if (!m_selectedMotors.empty()) publishConfigToSelection();
             } catch (...) {}
         }
         m_focusedField = FOCUS_NONE;
@@ -370,8 +409,16 @@ void MainWindow::handleMouseClick(int mx, int my, bool ctrlHeld)
             if (pointInRect(mx, my, tb.x, tb.y, tb.w, tb.h)) {
                 m_focusedField = tb.field;
                 SDL_StartTextInput();
-                // Initialize text buffer from first selected motor
-                if (!m_selectedMotors.empty()) {
+                if (tb.field == FOCUS_DPAD_RPM) {
+                    char buf[32];
+                    std::snprintf(buf, sizeof(buf), "%.0f", m_dpadRpmLimit);
+                    m_dpadRpmText = buf;
+                } else if (tb.field == FOCUS_DPAD_DUTY) {
+                    char buf[32];
+                    std::snprintf(buf, sizeof(buf), "%.3f", m_dpadDutyLimit);
+                    m_dpadDutyText = buf;
+                } else if (!m_selectedMotors.empty()) {
+                    // Initialize text buffer from first selected motor
                     int refIdx = *m_selectedMotors.begin();
                     std::lock_guard<std::mutex> lock(m_motorMutex);
                     if (tb.field == FOCUS_RPM) {
@@ -829,6 +876,22 @@ void MainWindow::renderSidebar(int x, int y, int w, int h)
     int px = x + 10;
     int py = y + 10;
 
+    // --- Mode banner ---
+    {
+        uint8_t curMode  = m_currentMode.load(std::memory_order_relaxed);
+        const char* ml   = (curMode == 0) ? "MOVEMENT" : "ARM";
+        SDL_Color modeCol = (curMode == 0) ? Colors::ACCENT_BLUE : Colors::STAT_WARN;
+        drawFilledRect(x, y, w, 46, Colors::CARD_BG);
+        int tw = 0, th = 0;
+        TTF_SizeText(m_font22, ml, &tw, &th);
+        drawText(x + (w - tw) / 2, y + (46 - th) / 2, ml, modeCol, m_font22);
+        SDL_SetRenderDrawColor(m_renderer,
+            Colors::BORDER.r, Colors::BORDER.g,
+            Colors::BORDER.b, Colors::BORDER.a);
+        SDL_RenderDrawLine(m_renderer, px, y + 48, x + w - 10, y + 48);
+        py = y + 56;
+    }
+
     drawText(px, py, "SYSTEM POWER", Colors::TEXT, m_font16);
     py += 28;
 
@@ -917,6 +980,34 @@ void MainWindow::renderSidebar(int x, int y, int w, int h)
         std::snprintf(buf, sizeof(buf), "%.1fA", m.current_in);
         drawText(px + barMaxW + 4, py - 1, buf, Colors::STAT_LABEL, m_font12);
         py += 14;
+    }
+
+    // --- D-pad limits section ---
+    if (py + 90 < y + h) {
+        SDL_SetRenderDrawColor(m_renderer,
+            Colors::BORDER.r, Colors::BORDER.g,
+            Colors::BORDER.b, Colors::BORDER.a);
+        SDL_RenderDrawLine(m_renderer, px, py, x + w - 10, py);
+        py += 8;
+        drawText(px, py, "D-PAD LIMITS", Colors::TEXT, m_font14);
+        py += 22;
+
+        int tbX = px + 55, tbW = w - 65, tbH = 22;
+
+        drawText(px, py + 4, "RPM:", Colors::STAT_LABEL, m_font12);
+        char rpmbuf[32];
+        std::snprintf(rpmbuf, sizeof(rpmbuf), "%.0f", m_dpadRpmLimit);
+        std::string rpmDisp = (m_focusedField == FOCUS_DPAD_RPM) ? m_dpadRpmText : std::string(rpmbuf);
+        drawTextBox(tbX, py, tbW, tbH, rpmDisp, m_focusedField == FOCUS_DPAD_RPM, m_font12);
+        m_textBoxRects.push_back({tbX, py, tbW, tbH, FOCUS_DPAD_RPM});
+        py += 28;
+
+        drawText(px, py + 4, "Duty:", Colors::STAT_LABEL, m_font12);
+        char dutybuf[32];
+        std::snprintf(dutybuf, sizeof(dutybuf), "%.3f", m_dpadDutyLimit);
+        std::string dutyDisp = (m_focusedField == FOCUS_DPAD_DUTY) ? m_dpadDutyText : std::string(dutybuf);
+        drawTextBox(tbX, py, tbW, tbH, dutyDisp, m_focusedField == FOCUS_DPAD_DUTY, m_font12);
+        m_textBoxRects.push_back({tbX, py, tbW, tbH, FOCUS_DPAD_DUTY});
     }
 
     SDL_RenderSetClipRect(m_renderer, nullptr);

@@ -4,7 +4,8 @@
 #include "robot_pkg/json.hpp"
 #include "robot_msgs/msg/motor_config.hpp"
 #include "robot_msgs/msg/motor_telemetry.hpp"
-#include "robot_msgs/msg/joystick_axes.hpp"
+#include "robot_msgs/msg/control_input.hpp"
+#include "robot_msgs/msg/d_pad_config.hpp"
 #include <algorithm>
 #include <chrono>
 #include <functional>
@@ -90,14 +91,41 @@ class BodyNode : public rclcpp::Node{
                         onConfigUpdate(msg);
                     });
 
-                // Joystick: single topic — all axes arrive together, no torn reads
-                sub_axes_ = create_subscription<robot_msgs::msg::JoystickAxes>(
-                    "/joystick/axes", CONTROL_QOS,
-                    [this](const robot_msgs::msg::JoystickAxes::SharedPtr msg) {
-                        joystick_left_y.store(msg->left_y,   std::memory_order_relaxed);
-                        joystick_left_x.store(msg->left_x,   std::memory_order_relaxed);
-                        joystick_right_y.store(msg->right_y, std::memory_order_relaxed); // flipper delantero
-                        joystick_right_x.store(msg->right_x, std::memory_order_relaxed); // flipper trasero
+                // Control input: mode + all axes, pre-compute flipper mixing here
+                sub_axes_ = create_subscription<robot_msgs::msg::ControlInput>(
+                    "/control/input", CONTROL_QOS,
+                    [this](const robot_msgs::msg::ControlInput::SharedPtr msg) {
+                        control_mode_.store(msg->mode, std::memory_order_relaxed);
+                        joystick_left_y.store(msg->left_y, std::memory_order_relaxed);
+                        joystick_left_x.store(msg->left_x, std::memory_order_relaxed);
+                        dpad_x_.store(msg->dpad_x, std::memory_order_relaxed);
+                        dpad_y_.store(msg->dpad_y, std::memory_order_relaxed);
+                        if (msg->mode == 0) {  // MOVEMENT: compute flipper mixing
+                            float ry = msg->right_y, rx = msg->right_x;
+                            // front (delantero): full up + rightward contribution
+                            joystick_right_y.store(
+                                std::clamp(ry + std::max(0.0f,  rx), -1.0f, 1.0f),
+                                std::memory_order_relaxed);
+                            // rear (trasero): full up + leftward contribution
+                            joystick_right_x.store(
+                                std::clamp(ry + std::max(0.0f, -rx), -1.0f, 1.0f),
+                                std::memory_order_relaxed);
+                        } else {  // ARM mode: zero flippers
+                            joystick_right_y.store(0.0f, std::memory_order_relaxed);
+                            joystick_right_x.store(0.0f, std::memory_order_relaxed);
+                        }
+                    });
+
+                // D-pad limits config (from ground station UI)
+                sub_dpad_config_ = create_subscription<robot_msgs::msg::DPadConfig>(
+                    "/ground_station/dpad_config",
+                    rclcpp::QoS(rclcpp::KeepLast(10)).reliable(),
+                    [this](const robot_msgs::msg::DPadConfig::SharedPtr msg) {
+                        std::lock_guard<std::mutex> lk(dpad_mutex_);
+                        dpad_limits_.rpm  = msg->rpm_limit;
+                        dpad_limits_.duty = msg->duty_cycle_limit;
+                        RCLCPP_INFO(get_logger(), "DPad limits updated: rpm=%.0f duty=%.3f",
+                                    dpad_limits_.rpm, dpad_limits_.duty);
                     });
 
 
@@ -154,8 +182,23 @@ class BodyNode : public rclcpp::Node{
             rpm_lim = left_.rpm_limit; duty_lim = left_.duty_cycle_limit;
             inv = left_.inverted; mode = left_.control_mode;
         }
-        // Diferencial tipo tanque: left = Y + X
-        float cmd = std::clamp(joystick_left_y.load(std::memory_order_relaxed) + joystick_left_x.load(std::memory_order_relaxed), -1.0f, 1.0f);
+        float dx = dpad_x_.load(std::memory_order_relaxed);
+        float dy = dpad_y_.load(std::memory_order_relaxed);
+        float cmd;
+        if (dx != 0.0f || dy != 0.0f) {
+            // D-pad override (active in any mode): tank mix with D-pad limits
+            cmd = std::clamp(dy + dx, -1.0f, 1.0f);
+            std::lock_guard<std::mutex> lk(dpad_mutex_);
+            rpm_lim = dpad_limits_.rpm; duty_lim = dpad_limits_.duty;
+        } else if (control_mode_.load(std::memory_order_relaxed) == 0) {
+            // MOVEMENT mode: joystick tank mix left = Y + X
+            cmd = std::clamp(
+                joystick_left_y.load(std::memory_order_relaxed) +
+                joystick_left_x.load(std::memory_order_relaxed), -1.0f, 1.0f);
+        } else {
+            // ARM mode, no D-pad: tracks stop
+            cmd = 0.0f;
+        }
         float sign = inv ? -1.0f : 1.0f;
         if (mode == 1) {
             leftMotor.set_duty_cycle(cmd * duty_lim * sign);
@@ -176,8 +219,23 @@ class BodyNode : public rclcpp::Node{
             rpm_lim = right_.rpm_limit; duty_lim = right_.duty_cycle_limit;
             inv = right_.inverted; mode = right_.control_mode;
         }
-        // Diferencial tipo tanque: right = Y - X
-        float cmd = std::clamp(joystick_left_y.load(std::memory_order_relaxed) - joystick_left_x.load(std::memory_order_relaxed), -1.0f, 1.0f);
+        float dx = dpad_x_.load(std::memory_order_relaxed);
+        float dy = dpad_y_.load(std::memory_order_relaxed);
+        float cmd;
+        if (dx != 0.0f || dy != 0.0f) {
+            // D-pad override: tank mix right = dy - dx
+            cmd = std::clamp(dy - dx, -1.0f, 1.0f);
+            std::lock_guard<std::mutex> lk(dpad_mutex_);
+            rpm_lim = dpad_limits_.rpm; duty_lim = dpad_limits_.duty;
+        } else if (control_mode_.load(std::memory_order_relaxed) == 0) {
+            // MOVEMENT mode: joystick tank mix right = Y - X
+            cmd = std::clamp(
+                joystick_left_y.load(std::memory_order_relaxed) -
+                joystick_left_x.load(std::memory_order_relaxed), -1.0f, 1.0f);
+        } else {
+            // ARM mode, no D-pad: tracks stop
+            cmd = 0.0f;
+        }
         float sign = inv ? -1.0f : 1.0f;
         if (mode == 1) {
             rightMotor.set_duty_cycle(cmd * duty_lim * sign);
@@ -405,7 +463,8 @@ class BodyNode : public rclcpp::Node{
     rclcpp::TimerBase::SharedPtr timer_left_flipper_;
     rclcpp::TimerBase::SharedPtr timer_right_flipper_;
     
-    rclcpp::Subscription<robot_msgs::msg::JoystickAxes>::SharedPtr sub_axes_;
+    rclcpp::Subscription<robot_msgs::msg::ControlInput>::SharedPtr sub_axes_;
+    rclcpp::Subscription<robot_msgs::msg::DPadConfig>::SharedPtr sub_dpad_config_;
     
     rclcpp::Publisher<robot_msgs::msg::MotorTelemetry>::SharedPtr left_full_telemetry_pub;
     rclcpp::Publisher<robot_msgs::msg::MotorTelemetry>::SharedPtr right_full_telemetry_pub;
@@ -416,10 +475,16 @@ class BodyNode : public rclcpp::Node{
     rclcpp::TimerBase::SharedPtr telemetry_timer_;
     rclcpp::CallbackGroup::SharedPtr callback_group_telemetry_;
 
-    std::atomic<float> joystick_left_y  {0.0f};
-    std::atomic<float> joystick_left_x  {0.0f};
-    std::atomic<float> joystick_right_y {0.0f};  // flipper delantero
-    std::atomic<float> joystick_right_x {0.0f};  // flipper trasero
+    std::atomic<float>   joystick_left_y  {0.0f};
+    std::atomic<float>   joystick_left_x  {0.0f};
+    std::atomic<float>   joystick_right_y {0.0f};  // pre-mixed front flipper cmd
+    std::atomic<float>   joystick_right_x {0.0f};  // pre-mixed rear flipper cmd
+    std::atomic<uint8_t> control_mode_   {0};       // 0=MOVEMENT, 1=ARM
+    std::atomic<float>   dpad_x_         {0.0f};
+    std::atomic<float>   dpad_y_         {0.0f};
+    struct DPadLimits { float rpm = 500.0f; float duty = 0.10f; };
+    DPadLimits dpad_limits_;
+    std::mutex dpad_mutex_;
 
     // ---- Config state ----
     std::string         config_path_;

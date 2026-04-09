@@ -12,7 +12,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "robot_pkg/VESC.hpp"
 #include "robot_pkg/json.hpp"
-#include "robot_msgs/msg/joystick_axes.hpp"
+#include "robot_msgs/msg/control_input.hpp"
 #include "robot_msgs/msg/motor_config.hpp"
 #include "robot_msgs/msg/motor_telemetry.hpp"
 
@@ -149,17 +149,29 @@ ArmNode() : Node("arm_node"),
         timer_claw_ = this->create_wall_timer(
             10ms, bind(&ArmNode::setClawRPM, this), callback_group_claw_);
         
-        // Arm joystick mapping:
-        //   left_y  → hip      left_x  → shoulder
-        //   right_y → elbow    right_x → roll
-        //   pitch / claw: no axis available — targets stay at 0
-        sub_axes_ = create_subscription<robot_msgs::msg::JoystickAxes>(
-            "/joystick/axes", CONTROL_QOS,
-            [this](const robot_msgs::msg::JoystickAxes::SharedPtr msg) {
-                target_hip_.store(msg->left_y,   std::memory_order_relaxed);
-                target_shoulder_.store(msg->left_x,  std::memory_order_relaxed);
-                target_elbow_.store(msg->right_y, std::memory_order_relaxed);
-                target_roll_.store(msg->right_x,  std::memory_order_relaxed);
+        // Control input: mode-aware arm mapping (ARM mode only)
+        //   left_y  → hip         left_x  → shoulder
+        //   right_y → elbow       right_x → roll
+        //   trigger_right - trigger_left → pitch
+        sub_axes_ = create_subscription<robot_msgs::msg::ControlInput>(
+            "/control/input", CONTROL_QOS,
+            [this](const robot_msgs::msg::ControlInput::SharedPtr msg) {
+                control_mode_.store(msg->mode, std::memory_order_relaxed);
+                if (msg->mode == 1) {  // ARM mode
+                    target_hip_.store(msg->left_y,      std::memory_order_relaxed);
+                    target_shoulder_.store(msg->left_x,  std::memory_order_relaxed);
+                    target_elbow_.store(msg->right_y,    std::memory_order_relaxed);
+                    target_roll_.store(msg->right_x,     std::memory_order_relaxed);
+                    target_pitch_.store(
+                        std::clamp(msg->trigger_right - msg->trigger_left, -1.0f, 1.0f),
+                        std::memory_order_relaxed);
+                } else {  // MOVEMENT mode: zero all arm targets
+                    target_hip_.store(0.0f,      std::memory_order_relaxed);
+                    target_shoulder_.store(0.0f, std::memory_order_relaxed);
+                    target_elbow_.store(0.0f,    std::memory_order_relaxed);
+                    target_roll_.store(0.0f,     std::memory_order_relaxed);
+                    target_pitch_.store(0.0f,    std::memory_order_relaxed);
+                }
             });
 
         hip_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
@@ -492,18 +504,19 @@ private:
     rclcpp::Publisher<robot_msgs::msg::MotorTelemetry>::SharedPtr claw_telemetry_pub;
 
 
-    std::atomic<float> target_hip_{0.0f};
-    std::atomic<float> target_shoulder_{0.0f};
-    std::atomic<float> target_elbow_{0.0f};
-    std::atomic<float> target_roll_{0.0f};
-    std::atomic<float> target_pitch_{0.0f};
-    std::atomic<float> target_claw_{0.0f};
+    std::atomic<float>   target_hip_{0.0f};
+    std::atomic<float>   target_shoulder_{0.0f};
+    std::atomic<float>   target_elbow_{0.0f};
+    std::atomic<float>   target_roll_{0.0f};
+    std::atomic<float>   target_pitch_{0.0f};
+    std::atomic<float>   target_claw_{0.0f};
+    std::atomic<uint8_t> control_mode_{0};  // 0=MOVEMENT, 1=ARM
 
 
     rclcpp::TimerBase::SharedPtr telemetry_timer_;
     rclcpp::CallbackGroup::SharedPtr callback_group_telemetry_;
 
-    rclcpp::Subscription<robot_msgs::msg::JoystickAxes>::SharedPtr sub_axes_;
+    rclcpp::Subscription<robot_msgs::msg::ControlInput>::SharedPtr sub_axes_;
 
     // ---- Config state ----
     std::string         config_path_;
