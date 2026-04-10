@@ -14,6 +14,8 @@ class BODY{
     public:
         BODY();
         ~BODY();
+    
+    void save_config_()
 };
 
 #endif

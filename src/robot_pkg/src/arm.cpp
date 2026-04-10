@@ -1,11 +1,13 @@
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <filesystem>
 #include <functional>
 #include <fstream>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -43,12 +45,19 @@ class ArmNode : public rclcpp::Node
 {
 public:
 
+    std::thread config_thread_;
+    std::mutex config_mutex_;
+    std::condition_variable config_cv_;
+    bool save_requested_ = false;
+    bool stop_thread_ = false;
+
     int hipMotorId = 4;
     int shoulderMotorId = 5;
     int elbowMotorId = 6;
     int rollMotorId = 7;
     int pitchMotorId = 8;
     int clawMotorId= 9;
+    
 
 
 
@@ -87,30 +96,66 @@ ArmNode() : Node("arm_node"),
         rollMotor.setId(roll_.vesc_id);
         pitchMotor.setId(pitch_.vesc_id);
         clawMotor.setId(claw_.vesc_id);
+        
+        config_thread_ = std::thread([this]() {
+        std::unique_lock<std::mutex> lock(config_mutex_);
+        while (!stop_thread_) {
+            config_cv_.wait(lock, [this]() { return save_requested_ || stop_thread_; });
+
+            if (stop_thread_) break;
+
+            save_requested_ = false;
+            lock.unlock();
+
+            saveConfig(); 
+
+            lock.lock();
+        }
+    });
 
         if (hipMotor.autoConnect(hip_.port)){
             RCLCPP_INFO(this->get_logger(), "Hip motor connected.");
-            hip_.port = hipMotor.getPortName(); saveConfig();
+            hip_.port = hipMotor.getPortName(); save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Hip motor."); }
         if (shoulderMotor.autoConnect(shoulder_.port)){
             RCLCPP_INFO(this->get_logger(), "Shoulder motor connected.");
-            shoulder_.port = shoulderMotor.getPortName(); saveConfig();
+            {
+                std::lock_guard<std::mutex> lk(settings_mutex_);
+                shoulder_.port = shoulderMotor.getPortName();
+            }
+            save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Shoulder motor."); }
         if (elbowMotor.autoConnect(elbow_.port)){
             RCLCPP_INFO(this->get_logger(), "Elbow motor connected.");
-            elbow_.port = elbowMotor.getPortName(); saveConfig();
+            {
+                std::lock_guard<std::mutex> lk(settings_mutex_);
+                elbow_.port = elbowMotor.getPortName();
+            }
+            save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Elbow motor."); }
         if (rollMotor.autoConnect(roll_.port)){
             RCLCPP_INFO(this->get_logger(), "Roll motor connected.");
-            roll_.port = rollMotor.getPortName(); saveConfig();
+            {
+                std::lock_guard<std::mutex> lk(settings_mutex_);
+                roll_.port = rollMotor.getPortName();
+            } 
+            save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Roll motor."); }
         if (pitchMotor.autoConnect(pitch_.port)){
             RCLCPP_INFO(this->get_logger(), "Pitch motor connected.");
-            pitch_.port = pitchMotor.getPortName(); saveConfig();
+            {
+                std::lock_guard<std::mutex> lk(settings_mutex_);
+                pitch_.port = pitchMotor.getPortName();
+            } 
+            save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Pitch motor."); }
         if (clawMotor.autoConnect(claw_.port)){
             RCLCPP_INFO(this->get_logger(), "Claw motor connected.");
-            claw_.port = clawMotor.getPortName(); saveConfig();
+            {
+                std::lock_guard<std::mutex> lk(settings_mutex_);
+                claw_.port = clawMotor.getPortName();
+            } 
+            save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Claw motor."); }
 
         config_update_sub_ = create_subscription<robot_msgs::msg::MotorConfig>(
@@ -217,6 +262,15 @@ ArmNode() : Node("arm_node"),
         rollMotor.disconnect();
         pitchMotor.disconnect();
         clawMotor.disconnect();
+
+        {
+        std::lock_guard<std::mutex> lock(config_mutex_);
+        stop_thread_ = true;
+        }
+        config_cv_.notify_one();
+
+        if (config_thread_.joinable())
+            config_thread_.join();
     }
 
     // normalized: -1.0 = full reverse, 0.0 = stop, 1.0 = full forward
@@ -226,6 +280,14 @@ ArmNode() : Node("arm_node"),
     void setRollTarget(float normalized)     { target_roll_.store(normalized); }
     void setPitchTarget(float normalized)    { target_pitch_.store(normalized); }
     void setClawTarget(float normalized)     { target_claw_.store(normalized); }
+
+    void save_config_(){
+    {
+        std::lock_guard<std::mutex> lock(config_mutex_);
+        save_requested_ = true;
+    }
+    config_cv_.notify_one();
+}
 
 private:
     void setHipRPM() {
@@ -424,6 +486,13 @@ private:
 
     void saveConfig() {
         try {
+            MotorSettings h, sh, el, ro, pi, cl;
+            {
+                std::lock_guard<std::mutex> lk(settings_mutex_);
+                h = hip_; sh = shoulder_; el = elbow_;
+                ro = roll_; pi = pitch_; cl = claw_;
+            }
+            // config_data_ is only touched by this background thread — no lock needed
             auto apply = [&](int idx, const MotorSettings& s) {
                 config_data_["motors"][idx]["id"]               = static_cast<int>(s.vesc_id);
                 config_data_["motors"][idx]["rpm_limit"]        = s.rpm_limit;
@@ -432,12 +501,6 @@ private:
                 config_data_["motors"][idx]["inverted"]         = s.inverted;
                 config_data_["motors"][idx]["port"]             = s.port;
             };
-            MotorSettings h, sh, el, ro, pi, cl;
-            {
-                std::lock_guard<std::mutex> lk(settings_mutex_);
-                h = hip_; sh = shoulder_; el = elbow_;
-                ro = roll_; pi = pitch_; cl = claw_;
-            }
             apply(4, h); apply(5, sh); apply(6, el);
             apply(7, ro); apply(8, pi); apply(9, cl);
             std::ofstream f(config_path_);
@@ -474,7 +537,7 @@ private:
             msg->config_index, msg->motor_name.c_str(),
             msg->motor_vesc_id, msg->rpm_limit, msg->duty_cycle_limit, msg->control_mode,
             msg->inverted ? "yes" : "no");
-        saveConfig();
+        save_config_();
     }
 
     VESC hipMotor;  //Cadera
@@ -538,6 +601,7 @@ private:
     std::mutex          settings_mutex_;
     MotorSettings       hip_, shoulder_, elbow_, roll_, pitch_, claw_;
     rclcpp::Subscription<robot_msgs::msg::MotorConfig>::SharedPtr config_update_sub_;
+
 };
 
 int main(int argc, char * argv[]){
