@@ -31,11 +31,12 @@ static const rclcpp::QoS TELEM_QOS = rclcpp::QoS(rclcpp::KeepLast(5))
 static constexpr float DEADZONE = 0.1f;
 
 struct MotorSettings {
-    uint8_t vesc_id          = 0;
-    float   rpm_limit        = 5000.0f;
-    float   duty_cycle_limit = 1.0f;
-    uint8_t control_mode     = 0;    // 0 = RPM mode, 1 = duty cycle mode
-    bool    inverted         = false;
+    uint8_t     vesc_id          = 0;
+    float       rpm_limit        = 5000.0f;
+    float       duty_cycle_limit = 1.0f;
+    uint8_t     control_mode     = 0;    // 0 = RPM mode, 1 = duty cycle mode
+    bool        inverted         = false;
+    std::string port             = "";   // last known ttyACM port (used as hint for autoConnect)
 };
 
 class ArmNode : public rclcpp::Node
@@ -87,36 +88,30 @@ ArmNode() : Node("arm_node"),
         pitchMotor.setId(pitch_.vesc_id);
         clawMotor.setId(claw_.vesc_id);
 
-        if (hipMotor.autoConnect()){
+        if (hipMotor.autoConnect(hip_.port)){
             RCLCPP_INFO(this->get_logger(), "Hip motor connected.");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to connect to Hip motor.");
-        }
-        if (shoulderMotor.autoConnect()){
+            hip_.port = hipMotor.getPortName(); saveConfig();
+        } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Hip motor."); }
+        if (shoulderMotor.autoConnect(shoulder_.port)){
             RCLCPP_INFO(this->get_logger(), "Shoulder motor connected.");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to connect to Shoulder motor.");
-        }
-        if (elbowMotor.autoConnect()){
+            shoulder_.port = shoulderMotor.getPortName(); saveConfig();
+        } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Shoulder motor."); }
+        if (elbowMotor.autoConnect(elbow_.port)){
             RCLCPP_INFO(this->get_logger(), "Elbow motor connected.");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to connect to Elbow motor.");
-        }
-        if (rollMotor.autoConnect()){
+            elbow_.port = elbowMotor.getPortName(); saveConfig();
+        } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Elbow motor."); }
+        if (rollMotor.autoConnect(roll_.port)){
             RCLCPP_INFO(this->get_logger(), "Roll motor connected.");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to connect to Roll motor.");
-        }
-        if (pitchMotor.autoConnect()){
+            roll_.port = rollMotor.getPortName(); saveConfig();
+        } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Roll motor."); }
+        if (pitchMotor.autoConnect(pitch_.port)){
             RCLCPP_INFO(this->get_logger(), "Pitch motor connected.");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to connect to Pitch motor.");
-        }
-        if (clawMotor.autoConnect()){
+            pitch_.port = pitchMotor.getPortName(); saveConfig();
+        } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Pitch motor."); }
+        if (clawMotor.autoConnect(claw_.port)){
             RCLCPP_INFO(this->get_logger(), "Claw motor connected.");
-        } else {
-            RCLCPP_ERROR(this->get_logger(), "Failed to connect to Claw motor.");
-        }
+            claw_.port = clawMotor.getPortName(); saveConfig();
+        } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Claw motor."); }
 
         config_update_sub_ = create_subscription<robot_msgs::msg::MotorConfig>(
             "/robot_config/update", 10,
@@ -156,6 +151,9 @@ ArmNode() : Node("arm_node"),
         sub_axes_ = create_subscription<robot_msgs::msg::ControlInput>(
             "/control/input", CONTROL_QOS,
             [this](const robot_msgs::msg::ControlInput::SharedPtr msg) {
+                last_input_ns_.store(
+                    std::chrono::steady_clock::now().time_since_epoch().count(),
+                    std::memory_order_relaxed);
                 control_mode_.store(msg->mode, std::memory_order_relaxed);
                 if (msg->mode == 1) {  // ARM mode
                     target_hip_.store(msg->left_y,      std::memory_order_relaxed);
@@ -191,10 +189,24 @@ ArmNode() : Node("arm_node"),
         claw_telemetry_pub = create_publisher<robot_msgs::msg::MotorTelemetry>(
             "/arm_claw/telemetry", TELEM_QOS);
 
-        // setup telemetry timer
-        callback_group_telemetry_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-        telemetry_timer_ = this->create_wall_timer(
-            50ms, bind(&ArmNode::telemetry, this), callback_group_telemetry_);
+        // One callback group + timer per motor so each serial read is independent
+        callback_group_telem_hip_      = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        callback_group_telem_shoulder_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        callback_group_telem_elbow_    = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        callback_group_telem_roll_     = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        callback_group_telem_pitch_    = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        callback_group_telem_claw_     = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+        telemetry_timer_hip_      = create_wall_timer(50ms, bind(&ArmNode::telemetryHip,      this), callback_group_telem_hip_);
+        telemetry_timer_shoulder_ = create_wall_timer(50ms, bind(&ArmNode::telemetryShoulder, this), callback_group_telem_shoulder_);
+        telemetry_timer_elbow_    = create_wall_timer(50ms, bind(&ArmNode::telemetryElbow,    this), callback_group_telem_elbow_);
+        telemetry_timer_roll_     = create_wall_timer(50ms, bind(&ArmNode::telemetryRoll,     this), callback_group_telem_roll_);
+        telemetry_timer_pitch_    = create_wall_timer(50ms, bind(&ArmNode::telemetryPitch,    this), callback_group_telem_pitch_);
+        telemetry_timer_claw_     = create_wall_timer(50ms, bind(&ArmNode::telemetryClaw,     this), callback_group_telem_claw_);
+
+        callback_group_watchdog_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+        watchdog_timer_ = create_wall_timer(
+            100ms, bind(&ArmNode::watchdog, this), callback_group_watchdog_);
     }
 
     ~ArmNode()
@@ -217,6 +229,12 @@ ArmNode() : Node("arm_node"),
 
 private:
     void setHipRPM() {
+        if (!hipMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Hip motor disconnected, reconnecting...");
+            std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = hip_.port; }
+            if (hipMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); hip_.port = hipMotor.getPortName(); }
+            return;
+        }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
         { std::lock_guard<std::mutex> lk(settings_mutex_); rpm_lim = hip_.rpm_limit; duty_lim = hip_.duty_cycle_limit; inv = hip_.inverted; mode = hip_.control_mode; }
         float cmd = std::clamp(target_hip_.load(), -1.0f, 1.0f);
@@ -227,6 +245,12 @@ private:
     }
 
     void setShoulderRPM() {
+        if (!shoulderMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Shoulder motor disconnected, reconnecting...");
+            std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = shoulder_.port; }
+            if (shoulderMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); shoulder_.port = shoulderMotor.getPortName(); }
+            return;
+        }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
         { std::lock_guard<std::mutex> lk(settings_mutex_); rpm_lim = shoulder_.rpm_limit; duty_lim = shoulder_.duty_cycle_limit; inv = shoulder_.inverted; mode = shoulder_.control_mode; }
         float cmd = std::clamp(target_shoulder_.load(), -1.0f, 1.0f);
@@ -237,6 +261,12 @@ private:
     }
 
     void setElbowRPM() {
+        if (!elbowMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Elbow motor disconnected, reconnecting...");
+            std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = elbow_.port; }
+            if (elbowMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); elbow_.port = elbowMotor.getPortName(); }
+            return;
+        }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
         { std::lock_guard<std::mutex> lk(settings_mutex_); rpm_lim = elbow_.rpm_limit; duty_lim = elbow_.duty_cycle_limit; inv = elbow_.inverted; mode = elbow_.control_mode; }
         float cmd = std::clamp(target_elbow_.load(), -1.0f, 1.0f);
@@ -247,6 +277,12 @@ private:
     }
 
     void setRollRPM() {
+        if (!rollMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Roll motor disconnected, reconnecting...");
+            std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = roll_.port; }
+            if (rollMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); roll_.port = rollMotor.getPortName(); }
+            return;
+        }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
         { std::lock_guard<std::mutex> lk(settings_mutex_); rpm_lim = roll_.rpm_limit; duty_lim = roll_.duty_cycle_limit; inv = roll_.inverted; mode = roll_.control_mode; }
         float cmd = std::clamp(target_roll_.load(), -1.0f, 1.0f);
@@ -257,6 +293,12 @@ private:
     }
 
     void setPitchRPM() {
+        if (!pitchMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Pitch motor disconnected, reconnecting...");
+            std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = pitch_.port; }
+            if (pitchMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); pitch_.port = pitchMotor.getPortName(); }
+            return;
+        }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
         { std::lock_guard<std::mutex> lk(settings_mutex_); rpm_lim = pitch_.rpm_limit; duty_lim = pitch_.duty_cycle_limit; inv = pitch_.inverted; mode = pitch_.control_mode; }
         float cmd = std::clamp(target_pitch_.load(), -1.0f, 1.0f);
@@ -267,6 +309,12 @@ private:
     }
 
     void setClawRPM() {
+        if (!clawMotor.isConnected()) {
+            RCLCPP_WARN(get_logger(), "Claw motor disconnected, reconnecting...");
+            std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = claw_.port; }
+            if (clawMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); claw_.port = clawMotor.getPortName(); }
+            return;
+        }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
         { std::lock_guard<std::mutex> lk(settings_mutex_); rpm_lim = claw_.rpm_limit; duty_lim = claw_.duty_cycle_limit; inv = claw_.inverted; mode = claw_.control_mode; }
         float cmd = std::clamp(target_claw_.load(), -1.0f, 1.0f);
@@ -276,121 +324,69 @@ private:
         else           { clawMotor.set_rpm(static_cast<int32_t>(cmd * rpm_lim * sign)); }
     }
 
-    void telemetry(){
-        VESCData m_telemetry;
-        MotorSettings h, sh, el, ro, pi, cl;
-        {
-            std::lock_guard<std::mutex> lk(settings_mutex_);
-            h = hip_; sh = shoulder_; el = elbow_;
-            ro = roll_; pi = pitch_; cl = claw_;
-        }
+    using TelemPub = rclcpp::Publisher<robot_msgs::msg::MotorTelemetry>::SharedPtr;
 
-        if(hipMotor.isConnected() && hipMotor.get_telemetry(m_telemetry)){
-            robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id     = m_telemetry.motor_controller_id;
-            msg.motor_name   = "Cadera";
-            msg.rpm          = m_telemetry.rpm;
-            msg.duty_cycle   = m_telemetry.duty_cycle;
-            msg.current_in   = m_telemetry.current_in;
-            msg.voltage      = m_telemetry.input_voltage;
-            msg.position     = m_telemetry.position;
-            msg.fault_code   = m_telemetry.fault_code;
-            msg.control_mode     = h.control_mode;
-            msg.inverted         = h.inverted;
-            msg.current_motor    = m_telemetry.current_motor;
-            msg.rpm_limit        = h.rpm_limit;
-            msg.duty_cycle_limit = h.duty_cycle_limit;
-            hip_telemetry_pub->publish(msg);
-        }
+    void publishTelemetry(VESC& motor, const std::string& name,
+                          const MotorSettings& s, const TelemPub& pub) {
+        VESCData t;
+        if (!motor.isConnected() || !motor.get_telemetry(t)) return;
+        robot_msgs::msg::MotorTelemetry msg;
+        msg.motor_id         = t.motor_controller_id;
+        msg.motor_name       = name;
+        msg.rpm              = t.rpm;
+        msg.duty_cycle       = t.duty_cycle;
+        msg.current_in       = t.current_in;
+        msg.voltage          = t.input_voltage;
+        msg.position         = t.position;
+        msg.fault_code       = t.fault_code;
+        msg.control_mode     = s.control_mode;
+        msg.inverted         = s.inverted;
+        msg.current_motor    = t.current_motor;
+        msg.rpm_limit        = s.rpm_limit;
+        msg.duty_cycle_limit = s.duty_cycle_limit;
+        pub->publish(msg);
+    }
 
-        if(shoulderMotor.isConnected() && shoulderMotor.get_telemetry(m_telemetry)){
-            robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id         = m_telemetry.motor_controller_id;
-            msg.motor_name       = "Hombro";
-            msg.rpm              = m_telemetry.rpm;
-            msg.duty_cycle       = m_telemetry.duty_cycle;
-            msg.current_in       = m_telemetry.current_in;
-            msg.voltage          = m_telemetry.input_voltage;
-            msg.position         = m_telemetry.position;
-            msg.fault_code       = m_telemetry.fault_code;
-            msg.control_mode     = sh.control_mode;
-            msg.inverted         = sh.inverted;
-            msg.current_motor    = m_telemetry.current_motor;
-            msg.rpm_limit        = sh.rpm_limit;
-            msg.duty_cycle_limit = sh.duty_cycle_limit;
-            shoulder_telemetry_pub->publish(msg);
-        }
+    void telemetryHip() {
+        MotorSettings s; { std::lock_guard<std::mutex> lk(settings_mutex_); s = hip_; }
+        publishTelemetry(hipMotor, "Cadera", s, hip_telemetry_pub);
+    }
+    void telemetryShoulder() {
+        MotorSettings s; { std::lock_guard<std::mutex> lk(settings_mutex_); s = shoulder_; }
+        publishTelemetry(shoulderMotor, "Hombro", s, shoulder_telemetry_pub);
+    }
+    void telemetryElbow() {
+        MotorSettings s; { std::lock_guard<std::mutex> lk(settings_mutex_); s = elbow_; }
+        publishTelemetry(elbowMotor, "Codo", s, elbow_telemetry_pub);
+    }
+    void telemetryRoll() {
+        MotorSettings s; { std::lock_guard<std::mutex> lk(settings_mutex_); s = roll_; }
+        publishTelemetry(rollMotor, "Roll", s, roll_telemetry_pub);
+    }
+    void telemetryPitch() {
+        MotorSettings s; { std::lock_guard<std::mutex> lk(settings_mutex_); s = pitch_; }
+        publishTelemetry(pitchMotor, "Pitch", s, pitch_telemetry_pub);
+    }
+    void telemetryClaw() {
+        MotorSettings s; { std::lock_guard<std::mutex> lk(settings_mutex_); s = claw_; }
+        publishTelemetry(clawMotor, "Grip", s, claw_telemetry_pub);
+    }
 
-        if(elbowMotor.isConnected() && elbowMotor.get_telemetry(m_telemetry)){
-            robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id         = m_telemetry.motor_controller_id;
-            msg.motor_name       = "Codo";
-            msg.rpm              = m_telemetry.rpm;
-            msg.duty_cycle       = m_telemetry.duty_cycle;
-            msg.current_in       = m_telemetry.current_in;
-            msg.voltage          = m_telemetry.input_voltage;
-            msg.position         = m_telemetry.position;
-            msg.fault_code       = m_telemetry.fault_code;
-            msg.control_mode     = el.control_mode;
-            msg.inverted         = el.inverted;
-            msg.current_motor    = m_telemetry.current_motor;
-            msg.rpm_limit        = el.rpm_limit;
-            msg.duty_cycle_limit = el.duty_cycle_limit;
-            elbow_telemetry_pub->publish(msg);
-        }
-
-        if(rollMotor.isConnected() && rollMotor.get_telemetry(m_telemetry)){
-            robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id         = m_telemetry.motor_controller_id;
-            msg.motor_name       = "Roll";
-            msg.rpm              = m_telemetry.rpm;
-            msg.duty_cycle       = m_telemetry.duty_cycle;
-            msg.current_in       = m_telemetry.current_in;
-            msg.voltage          = m_telemetry.input_voltage;
-            msg.position         = m_telemetry.position;
-            msg.fault_code       = m_telemetry.fault_code;
-            msg.control_mode     = ro.control_mode;
-            msg.inverted         = ro.inverted;
-            msg.current_motor    = m_telemetry.current_motor;
-            msg.rpm_limit        = ro.rpm_limit;
-            msg.duty_cycle_limit = ro.duty_cycle_limit;
-            roll_telemetry_pub->publish(msg);
-        }
-
-        if(pitchMotor.isConnected() && pitchMotor.get_telemetry(m_telemetry)){
-            robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id         = m_telemetry.motor_controller_id;
-            msg.motor_name       = "Pitch";
-            msg.rpm              = m_telemetry.rpm;
-            msg.duty_cycle       = m_telemetry.duty_cycle;
-            msg.current_in       = m_telemetry.current_in;
-            msg.voltage          = m_telemetry.input_voltage;
-            msg.position         = m_telemetry.position;
-            msg.fault_code       = m_telemetry.fault_code;
-            msg.control_mode     = pi.control_mode;
-            msg.inverted         = pi.inverted;
-            msg.current_motor    = m_telemetry.current_motor;
-            msg.rpm_limit        = pi.rpm_limit;
-            msg.duty_cycle_limit = pi.duty_cycle_limit;
-            pitch_telemetry_pub->publish(msg);
-        }
-
-        if(clawMotor.isConnected() && clawMotor.get_telemetry(m_telemetry)){
-            robot_msgs::msg::MotorTelemetry msg;
-            msg.motor_id         = m_telemetry.motor_controller_id;
-            msg.motor_name       = "Grip";
-            msg.rpm              = m_telemetry.rpm;
-            msg.duty_cycle       = m_telemetry.duty_cycle;
-            msg.current_in       = m_telemetry.current_in;
-            msg.voltage          = m_telemetry.input_voltage;
-            msg.position         = m_telemetry.position;
-            msg.fault_code       = m_telemetry.fault_code;
-            msg.control_mode     = cl.control_mode;
-            msg.inverted         = cl.inverted;
-            msg.current_motor    = m_telemetry.current_motor;
-            msg.rpm_limit        = cl.rpm_limit;
-            msg.duty_cycle_limit = cl.duty_cycle_limit;
-            claw_telemetry_pub->publish(msg);
+    // ---- Watchdog ----
+    void watchdog() {
+        auto last = last_input_ns_.load(std::memory_order_relaxed);
+        if (last == 0) return;  // no message received yet, nothing to guard
+        constexpr int64_t TIMEOUT_NS = 200'000'000LL;  // 200 ms
+        auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+        if (now - last > TIMEOUT_NS) {
+            RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000,
+                "No /control/input for >200 ms — zeroing all arm commands");
+            target_hip_.store(0.0f,      std::memory_order_relaxed);
+            target_shoulder_.store(0.0f, std::memory_order_relaxed);
+            target_elbow_.store(0.0f,    std::memory_order_relaxed);
+            target_roll_.store(0.0f,     std::memory_order_relaxed);
+            target_pitch_.store(0.0f,    std::memory_order_relaxed);
+            target_claw_.store(0.0f,     std::memory_order_relaxed);
         }
     }
 
@@ -413,6 +409,7 @@ private:
                     s.duty_cycle_limit = motors[idx].value("duty_cycle_limit", s.duty_cycle_limit);
                     s.control_mode     = static_cast<uint8_t>(motors[idx].value("control_mode", static_cast<int>(s.control_mode)));
                     s.inverted         = motors[idx].value("inverted",         s.inverted);
+                    s.port             = motors[idx].value("port",             s.port);
                 }
             };
             std::lock_guard<std::mutex> lk(settings_mutex_);
@@ -433,6 +430,7 @@ private:
                 config_data_["motors"][idx]["duty_cycle_limit"] = s.duty_cycle_limit;
                 config_data_["motors"][idx]["control_mode"]     = static_cast<int>(s.control_mode);
                 config_data_["motors"][idx]["inverted"]         = s.inverted;
+                config_data_["motors"][idx]["port"]             = s.port;
             };
             MotorSettings h, sh, el, ro, pi, cl;
             {
@@ -515,10 +513,22 @@ private:
     std::atomic<float>   target_pitch_{0.0f};
     std::atomic<float>   target_claw_{0.0f};
     std::atomic<uint8_t> control_mode_{0};  // 0=MOVEMENT, 1=ARM
+    std::atomic<int64_t> last_input_ns_{0}; // steady_clock ns of last /control/input
+    rclcpp::TimerBase::SharedPtr     watchdog_timer_;
+    rclcpp::CallbackGroup::SharedPtr callback_group_watchdog_;
 
-
-    rclcpp::TimerBase::SharedPtr telemetry_timer_;
-    rclcpp::CallbackGroup::SharedPtr callback_group_telemetry_;
+    rclcpp::TimerBase::SharedPtr telemetry_timer_hip_;
+    rclcpp::TimerBase::SharedPtr telemetry_timer_shoulder_;
+    rclcpp::TimerBase::SharedPtr telemetry_timer_elbow_;
+    rclcpp::TimerBase::SharedPtr telemetry_timer_roll_;
+    rclcpp::TimerBase::SharedPtr telemetry_timer_pitch_;
+    rclcpp::TimerBase::SharedPtr telemetry_timer_claw_;
+    rclcpp::CallbackGroup::SharedPtr callback_group_telem_hip_;
+    rclcpp::CallbackGroup::SharedPtr callback_group_telem_shoulder_;
+    rclcpp::CallbackGroup::SharedPtr callback_group_telem_elbow_;
+    rclcpp::CallbackGroup::SharedPtr callback_group_telem_roll_;
+    rclcpp::CallbackGroup::SharedPtr callback_group_telem_pitch_;
+    rclcpp::CallbackGroup::SharedPtr callback_group_telem_claw_;
 
     rclcpp::Subscription<robot_msgs::msg::ControlInput>::SharedPtr sub_axes_;
 
