@@ -265,16 +265,19 @@ void VESC::request_values() {
     send_vesc_packet(payload);
 }
 
-  std::vector<uint8_t> VESC::read_bytes() {                                                                                                                                                                 
-      std::vector<uint8_t> buffer;                                                                                                                                                                          
+  std::vector<uint8_t> VESC::read_bytes() {
+      std::vector<uint8_t> buffer;
       std::lock_guard<std::recursive_mutex> lk(port_mutex_);
-      if (!isConnected()) return buffer;                                                                                                                                                                    
-                                                                                                                                                                                                            
+      if (!isConnected()) return buffer;
+
       try {
-          char byte;                                                                                                                                                                                        
-          // Read start byte                                                                                                                                                                              
-          serial_port_->ReadByte(byte, timeout);
-          if (static_cast<uint8_t>(byte) != 0x02) return buffer;                                                                                                                                            
+          char byte;
+          // Scan forward until the VESC frame start byte (0x02).
+          // A single non-0x02 byte used to abort the whole read; now we skip
+          // junk bytes so one bad byte doesn't permanently desync telemetry.
+          do {
+              serial_port_->ReadByte(byte, timeout);
+          } while (static_cast<uint8_t>(byte) != 0x02);
           buffer.push_back(static_cast<uint8_t>(byte));
                                                                                                                                                                                                             
           // Read length                                                                                                                                                                                  
@@ -297,6 +300,10 @@ void VESC::request_values() {
 
 bool VESC::get_telemetry(VESCData& out) {
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
+    if (!isConnected()) return false;
+    // Flush stale bytes before requesting — prevents cascading desync when a
+    // previous read timed out and left partial VESC response bytes in the OS buffer.
+    try { serial_port_->FlushInputBuffer(); } catch (...) {}
     request_values();
     if (!running) return false;
 

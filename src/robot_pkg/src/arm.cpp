@@ -492,7 +492,14 @@ private:
                 h = hip_; sh = shoulder_; el = elbow_;
                 ro = roll_; pi = pitch_; cl = claw_;
             }
-            // config_data_ is only touched by this background thread — no lock needed
+            // Re-read the file before writing so we don't overwrite body_node's section
+            // (indices 0-3). Both nodes share the same config.json; writing from a stale
+            // in-memory copy would clobber the other node's port hints.
+            try {
+                std::ifstream fin(config_path_);
+                if (fin.is_open()) config_data_ = nlohmann::json::parse(fin);
+            } catch (...) { /* keep existing config_data_ as fallback */ }
+
             auto apply = [&](int idx, const MotorSettings& s) {
                 config_data_["motors"][idx]["id"]               = static_cast<int>(s.vesc_id);
                 config_data_["motors"][idx]["rpm_limit"]        = s.rpm_limit;

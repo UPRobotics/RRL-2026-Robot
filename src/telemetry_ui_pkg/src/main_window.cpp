@@ -217,10 +217,20 @@ void MainWindow::publishConfigUpdate(int configIndex)
 {
     if (!m_configPub || configIndex < 0 || configIndex >= NUM_MOTORS) return;
 
+    // Read motor_id and motor_name under the lock — onTelemetryReceived() writes
+    // m_motors from the ROS callback thread, so accessing without a lock is a data race.
+    uint8_t    vesId;
+    std::string vesName;
+    {
+        std::lock_guard<std::mutex> lock(m_motorMutex);
+        vesId   = m_motors[configIndex].motor_id;
+        vesName = m_motors[configIndex].motor_name;
+    }
+
     robot_msgs::msg::MotorConfig msg;
     msg.config_index     = static_cast<uint8_t>(configIndex);
-    msg.motor_vesc_id    = m_motors[configIndex].motor_id;
-    msg.motor_name       = m_motors[configIndex].motor_name;
+    msg.motor_vesc_id    = vesId;
+    msg.motor_name       = vesName;
     msg.rpm_limit        = m_editRpmLimit;
     msg.duty_cycle_limit = m_editDutyCycleLimit;
     msg.control_mode     = m_editControlMode;
@@ -228,7 +238,7 @@ void MainWindow::publishConfigUpdate(int configIndex)
 
     m_configPub->publish(msg);
     spdlog::info("Published config for motor [{}] {}: rpm_limit={:.0f} duty={:.3f} mode={} inv={}",
-        configIndex, msg.motor_name, msg.rpm_limit, msg.duty_cycle_limit,
+        configIndex, vesName, msg.rpm_limit, msg.duty_cycle_limit,
         msg.control_mode, msg.inverted ? "yes" : "no");
 }
 

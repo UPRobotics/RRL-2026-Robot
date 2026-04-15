@@ -149,16 +149,12 @@ class BodyNode : public rclcpp::Node{
                         joystick_left_x.store(msg->left_x, std::memory_order_relaxed);
                         dpad_x_.store(msg->dpad_x, std::memory_order_relaxed);
                         dpad_y_.store(msg->dpad_y, std::memory_order_relaxed);
-                        if (msg->mode == 0) {  // MOVEMENT: compute flipper mixing
-                            float ry = msg->right_y, rx = msg->right_x;
-                            // front (delantero): full up + rightward contribution
-                            joystick_right_y.store(
-                                std::clamp(ry + std::max(0.0f,  rx), -1.0f, 1.0f),
-                                std::memory_order_relaxed);
-                            // rear (trasero): full up + leftward contribution
-                            joystick_right_x.store(
-                                std::clamp(ry + std::max(0.0f, -rx), -1.0f, 1.0f),
-                                std::memory_order_relaxed);
+                        if (msg->mode == 0) {  // MOVEMENT mode
+                            // right stick Y → front flipper (Delantero)
+                            // right stick X → rear flipper (Trasero)
+                            // diagonal → both move independently
+                            joystick_right_y.store(msg->right_y, std::memory_order_relaxed);
+                            joystick_right_x.store(msg->right_x, std::memory_order_relaxed);
                         } else {  // ARM mode: zero flippers before updating mode
                             joystick_right_y.store(0.0f, std::memory_order_relaxed);
                             joystick_right_x.store(0.0f, std::memory_order_relaxed);
@@ -470,7 +466,14 @@ class BodyNode : public rclcpp::Node{
                 std::lock_guard<std::mutex> lk(settings_mutex_);
                 lf = left_flipper_; l = left_; r = right_; rf = right_flipper_;
             }
-            // config_data_ is only touched by this background thread — no lock needed
+            // Re-read the file before writing so we don't overwrite arm_node's section
+            // (indices 4-9). Both nodes share the same config.json; writing from a stale
+            // in-memory copy would clobber the other node's port hints.
+            try {
+                std::ifstream fin(config_path_);
+                if (fin.is_open()) config_data_ = nlohmann::json::parse(fin);
+            } catch (...) { /* keep existing config_data_ as fallback */ }
+
             auto apply = [&](int idx, const MotorSettings& s) {
                 config_data_["motors"][idx]["id"]               = static_cast<int>(s.vesc_id);
                 config_data_["motors"][idx]["rpm_limit"]        = s.rpm_limit;
