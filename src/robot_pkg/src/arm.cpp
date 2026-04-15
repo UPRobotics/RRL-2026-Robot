@@ -201,8 +201,8 @@ ArmNode() : Node("arm_node"),
                     std::memory_order_relaxed);
                 control_mode_.store(msg->mode, std::memory_order_relaxed);
                 if (msg->mode == 1) {  // ARM mode
-                    target_hip_.store(msg->left_y,      std::memory_order_relaxed);
-                    target_shoulder_.store(msg->left_x,  std::memory_order_relaxed);
+                    target_hip_.store(msg->left_x,      std::memory_order_relaxed);
+                    target_shoulder_.store(msg->left_y,  std::memory_order_relaxed);
                     target_elbow_.store(msg->right_y,    std::memory_order_relaxed);
                     target_roll_.store(msg->right_x,     std::memory_order_relaxed);
                     target_pitch_.store(
