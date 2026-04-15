@@ -231,19 +231,38 @@ sudo apt-get install -y -qq \
     python3-tk > /dev/null
 
 ###############################################################################
-# 11. Python dependencies (for VESCRPMDutyCycle.py, magnetometer, test scripts)
+# 11. LIDAR + SLAM packages (FAST_LIO + Octomap) - para laptops
+###############################################################################
+log "Installing LIDAR/SLAM dependencies for development and visualization..."
+
+sudo apt install -y -qq \
+    ros-humble-foxglove-bridge \    
+    ros-humble-pcl-ros \
+    ros-humble-pcl-conversions \
+    ros-humble-octomap \
+    ros-humble-octomap-msgs \
+    ros-humble-octomap-rviz-plugins \
+    libpcl-dev \
+    libeigen3-dev \
+    ros-humble-sensor-msgs \
+    ros-humble-geometry-msgs > /dev/null || true
+
+log "FAST_LIO + Octomap + visualization dependencies installed."
+
+###############################################################################
+# 12. Python dependencies (for VESCRPMDutyCycle.py, magnetometer, test scripts)
 ###############################################################################
 log "Installing Python dependencies..."
 pip3 install --user -q pyserial
 
 ###############################################################################
-# 12. Serial port permissions
+# 13. Serial port permissions
 ###############################################################################
 log "Adding user '${USER}' to 'dialout' group for serial port access..."
 sudo usermod -aG dialout "${USER}" || warn "Could not add user to dialout group."
 
 ###############################################################################
-# 13. Initialize / update rosdep
+# 14. Initialize / update rosdep
 ###############################################################################
 log "Initializing rosdep..."
 if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
@@ -252,7 +271,7 @@ fi
 rosdep update --rosdistro=humble > /dev/null
 
 ###############################################################################
-# 14. Install remaining dependencies via rosdep
+# 15. Install remaining dependencies via rosdep
 ###############################################################################
 log "Running rosdep install for workspace..."
 cd "${WS_DIR}"
@@ -262,7 +281,7 @@ set -u
 rosdep install --from-paths src --ignore-src -r -y > /dev/null 2>&1 || warn "Some rosdep keys could not be resolved."
 
 ###############################################################################
-# 15. Build the workspace
+# 16. Build the workspace
 ###############################################################################
 log "Building the workspace with colcon..."
 cd "${WS_DIR}"
@@ -279,7 +298,7 @@ else
 fi
 
 ###############################################################################
-# 16. Summary
+# 17. Summary
 ###############################################################################
 echo ""
 log "============================================"
