@@ -226,7 +226,9 @@ cd "${WS_DIR}"
 set +u
 source /opt/ros/humble/setup.bash
 set -u
-rosdep install --from-paths src --ignore-src -r -y > /dev/null 2>&1 || warn "Some rosdep keys could not be resolved."
+rosdep install --from-paths src --ignore-src -r -y \
+    --skip-keys "libzbar-dev nlohmann-json3-dev libsdl2-ttf-dev libspdlog-dev livox_ros_driver2" \
+    || warn "Some rosdep keys could not be resolved."
 
 ###############################################################################
 # 14. Build the workspace (excluding desktop-only packages)
@@ -236,14 +238,16 @@ cd "${WS_DIR}"
 set +u
 source /opt/ros/humble/setup.bash
 set -u
-    colcon build --symlink-install \
-        --packages-ignore camera_pkg detections_pkg > /tmp/colcon_build_output.log 2>&1
-
+set +e
+colcon build --symlink-install --packages-ignore camera_pkg detections_pkg
 BUILD_RC=$?
+set -e
+
 if [ "${BUILD_RC}" -eq 0 ]; then
     log "Build completed successfully!"
 else
-    err "Build failed. Check /tmp/colcon_build_output.log for details."
+    err "Build failed (exit code ${BUILD_RC}). Scroll up for compiler errors."
+    exit "${BUILD_RC}"
 fi
 
 ###############################################################################
