@@ -61,6 +61,13 @@ ros2 run telemetry_ui_pkg telemetry_ui_node    # SDL2 dashboard
 # Robot side
 ros2 launch robot_pkg robot.launch.py          # arm_node + body_node + telemetry_node
 
+# Separate body/arm launches
+ros2 launch robot_pkg body.launch.py
+ros2 launch robot_pkg arm.launch.py
+
+# Simulation (no hardware — motor_sim_node + telemetry_node + telemetry_ui)
+ros2 launch robot_pkg robot_sim.launch.py [num_motors:=10]
+
 # Individual nodes
 ros2 run robot_pkg body_node
 ros2 run robot_pkg arm_node
@@ -99,15 +106,22 @@ axes[6] → dpad_x    (-1=left, +1=right)
 axes[7] → dpad_y    (+1=up, -1=down)
 ```
 
+Trigger normalization: raw joy value 1.0 (unpressed) → 0.0, -1.0 (full press) → 1.0.
+
 ### Motor telemetry (robot_msgs/MotorTelemetry, BEST_EFFORT KeepLast(5))
-```
-/body_left/telemetry          /arm_hip/telemetry
-/body_right/telemetry         /arm_shoulder/telemetry
-/body_left_flipper/telemetry  /arm_elbow/telemetry
-/body_right_flipper/telemetry /arm_roll/telemetry
-                               /arm_pitch/telemetry
-                               /arm_claw/telemetry
-```
+
+| Topic | config_index |
+|-------|-------------|
+| `/body_left_flipper/telemetry` | 0 |
+| `/body_left/telemetry` | 1 |
+| `/body_right/telemetry` | 2 |
+| `/body_right_flipper/telemetry` | 3 |
+| `/arm_hip/telemetry` | 4 |
+| `/arm_shoulder/telemetry` | 5 |
+| `/arm_elbow/telemetry` | 6 |
+| `/arm_roll/telemetry` | 7 |
+| `/arm_pitch/telemetry` | 8 |
+| `/arm_claw/telemetry` | 9 |
 
 ### Config update pipeline (RELIABLE KeepLast(10))
 ```
@@ -115,6 +129,9 @@ axes[7] → dpad_y    (+1=up, -1=down)
   └─ telemetry_node (telemetry_pkg)
        └─ /robot_config/update  (robot_msgs/MotorConfig)
             └─ body_node / arm_node (robot_pkg)
+
+/ground_station/dpad_config   (robot_msgs/DPadConfig, RELIABLE KeepLast(10))
+  └─ body_node / arm_node  — updates rpm/duty limits live
 ```
 
 ### Other topics
@@ -181,31 +198,40 @@ bool    inverted
 ## Motor Layout
 
 ### Body (body_node, ttyACM0–3)
-| config_index | Motor name | VESC ID | ttyACM | Notes |
-|---|---|---|---|---|
-| 0 | Flipper Trasero | 2 | ACM2 | inverted=true |
-| 1 | Track Izquierdo | 0 | ACM0 | |
-| 2 | Track Derecho | 1 | ACM1 | inverted=true |
-| 3 | Flipper Delantero | 3 | ACM3 | |
+| config_index | Motor name | ttyACM | Notes |
+|---|---|---|---|
+| 0 | Flipper Trasero (left_flipper) | ACM* | inverted=true |
+| 1 | Track Izquierdo (left) | ACM* | |
+| 2 | Track Derecho (right) | ACM* | inverted=true |
+| 3 | Flipper Delantero (right_flipper) | ACM* | |
+
+> **Note:** VESC IDs and limits are stored in `src/robot_pkg/config/config.json`, which is the runtime source of truth. The IDs in config.json may differ from the hardware VESC firmware IDs — always check the file.
 
 Tank drive: `left = Y + X`, `right = Y - X`
-Front flipper ← right_y, Rear flipper ← right_x
+
+Flipper mapping (computed in body_node, not control_pkg):
+```
+front_flipper (Delantero) ← right_y   (stick up/down)
+rear_flipper  (Trasero)   ← right_x   (stick left/right)
+diagonal right stick      → both move independently
+```
+In ARM mode, flipper atomics are zeroed before updating mode to avoid torn reads.
 
 **Motor groups** (used in telemetry_ui for bulk config):
 - `Flippers`: config_index {0, 3}
 - `Tracks`: config_index {1, 2}
 
 ### Arm (arm_node, ttyACM4)
-| config_index | Motor name | VESC ID | mode | rpm_limit |
-|---|---|---|---|---|
-| 4 | Hip | 4 | RPM | 3000 |
-| 5 | Shoulder | 5 | duty_cycle | 3000 |
-| 6 | Elbow | 6 | duty_cycle | 3000 |
-| 7 | Roll | 7 | RPM | 2000 |
-| 8 | Pitch | 8 | duty_cycle | 1000 |
-| 9 | Grip | 9 | duty_cycle | 1000 |
+| config_index | Motor name | mode | rpm_limit |
+|---|---|---|---|
+| 4 | Hip | RPM | 3000 |
+| 5 | Shoulder | duty_cycle | 3000 |
+| 6 | Elbow | duty_cycle | 3000 |
+| 7 | Roll | RPM | 2000 |
+| 8 | Pitch | duty_cycle | 1000 |
+| 9 | Grip | duty_cycle | 1000 |
 
-All arm `duty_cycle_limit = 0.1`
+All arm `duty_cycle_limit = 0.1` (from config.json).
 
 ---
 
@@ -220,6 +246,18 @@ Key packet IDs:
 - `0x05` = COMM_SET_DUTY (duty cycle × 100000 as big-endian int32)
 - `0x08` = COMM_SET_RPM (big-endian int32)
 
+### VESC autoConnect
+
+`VESC::autoConnect(hint)` scans `/dev/ttyACM*` and identifies each motor by probing its
+firmware ID via `COMM_GET_VALUES`. Key details:
+- A static `VESC::scan_mutex_` serializes all autoConnect calls across motor instances,
+  preventing two motors from claiming the same port simultaneously.
+- If `hint` (last known port path) is provided, it is tried first before the full scan —
+  this speeds up reconnection on restart. The port is cached back to config.json after
+  a successful connect.
+- On disconnect, `running` is set false; `isConnected()` catches exceptions from a
+  closed port and returns false safely.
+
 Standalone VESC test tool (no ROS required): `src/robot_pkg/src/pytest/pytest.py`
 Edit `SERIAL_PORTS` dict at the top to target specific ports.
 
@@ -230,14 +268,17 @@ Edit `SERIAL_PORTS` dict at the top to target specific ports.
 Loaded by body_node and arm_node from:
 `ament_index_cpp::get_package_share_directory("robot_pkg") + "/config/config.json"`
 
-Updated at runtime via `/robot_config/update` topic.
+Updated at runtime via `/robot_config/update` topic. Config writes are handled by a
+dedicated background thread + `condition_variable` in each node (config_thread_) so
+disk I/O never blocks the drive timers.
 
 ---
 
 ## Multithreading Pattern (robot_pkg)
 
-Each motor drive loop runs in its own callback group → parallel execution in
-`MultiThreadedExecutor`. Joystick values shared between threads via `std::atomic<float>`.
+Each motor drive loop runs in its own `MutuallyExclusive` callback group → parallel
+execution in `MultiThreadedExecutor`. Joystick values shared between threads via
+`std::atomic<float>`.
 
 ```cpp
 std::atomic<float> left_y_{0.0f};
@@ -245,7 +286,20 @@ rclcpp::CallbackGroup::SharedPtr cg_left_ =
     create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 ```
 
-Telemetry timer: 50 ms (20 Hz). Drive timers: 10 ms (100 Hz) per motor.
+Telemetry timer: 20 ms (50 Hz). Drive timers: 10 ms (100 Hz) per motor.
+
+---
+
+## telemetry_ui_pkg
+
+SDL2 dashboard (`src/telemetry_ui_pkg/src/main_window.cpp`). Uses `rclcpp::spin_some()`
+in a manual event loop (not MultiThreadedExecutor) so it can interleave ROS callbacks
+with SDL rendering.
+
+Font hardcoded to `/usr/share/fonts/truetype/freefont/FreeMono.ttf`. Install with:
+```bash
+sudo apt install fonts-freefont-ttf
+```
 
 ---
 
@@ -317,6 +371,7 @@ Hazmat models: `src/detections_pkg/config/models/hazmat_best.onnx` (YOLOv8),
 | JSON | nlohmann-json3-dev |
 | Joystick driver | ros-humble-joy |
 | SDL2 graphics | libsdl2-dev, libsdl2-ttf-dev |
+| SDL2 font | fonts-freefont-ttf |
 | FFmpeg (RTSP) | libavcodec-dev, libavformat-dev, libswscale-dev, libavutil-dev |
 | Logging | libspdlog-dev |
 | Computer vision | libopencv-dev |

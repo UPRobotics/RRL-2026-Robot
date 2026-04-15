@@ -224,8 +224,8 @@ cd "${WS_DIR}"
 set +u
 source /opt/ros/humble/setup.bash
 set -u
-colcon build --symlink-install \
-    --packages-ignore camera_pkg detections_pkg > /tmp/colcon_build_output.log 2>&1
+    colcon build --symlink-install \
+        --packages-ignore camera_pkg detections_pkg > /tmp/colcon_build_output.log 2>&1
 
 BUILD_RC=$?
 if [ "${BUILD_RC}" -eq 0 ]; then

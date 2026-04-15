@@ -38,6 +38,7 @@ struct MotorSettings {
     float       duty_cycle_limit = 1.0f;
     uint8_t     control_mode     = 0;    // 0 = RPM mode, 1 = duty cycle mode
     bool        inverted         = false;
+    bool        enabled          = true; // false = skip autoConnect and drive
     std::string port             = "";   // last known ttyACM port (used as hint for autoConnect)
 };
 
@@ -113,11 +114,16 @@ ArmNode() : Node("arm_node"),
         }
     });
 
-        if (hipMotor.autoConnect(hip_.port)){
+        if (!hip_.enabled) {
+            RCLCPP_INFO(this->get_logger(), "Hip motor disabled — skipping autoConnect.");
+        } else if (hipMotor.autoConnect(hip_.port)){
             RCLCPP_INFO(this->get_logger(), "Hip motor connected.");
             hip_.port = hipMotor.getPortName(); save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Hip motor."); }
-        if (shoulderMotor.autoConnect(shoulder_.port)){
+
+        if (!shoulder_.enabled) {
+            RCLCPP_INFO(this->get_logger(), "Shoulder motor disabled — skipping autoConnect.");
+        } else if (shoulderMotor.autoConnect(shoulder_.port)){
             RCLCPP_INFO(this->get_logger(), "Shoulder motor connected.");
             {
                 std::lock_guard<std::mutex> lk(settings_mutex_);
@@ -125,7 +131,10 @@ ArmNode() : Node("arm_node"),
             }
             save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Shoulder motor."); }
-        if (elbowMotor.autoConnect(elbow_.port)){
+
+        if (!elbow_.enabled) {
+            RCLCPP_INFO(this->get_logger(), "Elbow motor disabled — skipping autoConnect.");
+        } else if (elbowMotor.autoConnect(elbow_.port)){
             RCLCPP_INFO(this->get_logger(), "Elbow motor connected.");
             {
                 std::lock_guard<std::mutex> lk(settings_mutex_);
@@ -133,28 +142,37 @@ ArmNode() : Node("arm_node"),
             }
             save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Elbow motor."); }
-        if (rollMotor.autoConnect(roll_.port)){
+
+        if (!roll_.enabled) {
+            RCLCPP_INFO(this->get_logger(), "Roll motor disabled — skipping autoConnect.");
+        } else if (rollMotor.autoConnect(roll_.port)){
             RCLCPP_INFO(this->get_logger(), "Roll motor connected.");
             {
                 std::lock_guard<std::mutex> lk(settings_mutex_);
                 roll_.port = rollMotor.getPortName();
-            } 
+            }
             save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Roll motor."); }
-        if (pitchMotor.autoConnect(pitch_.port)){
+
+        if (!pitch_.enabled) {
+            RCLCPP_INFO(this->get_logger(), "Pitch motor disabled — skipping autoConnect.");
+        } else if (pitchMotor.autoConnect(pitch_.port)){
             RCLCPP_INFO(this->get_logger(), "Pitch motor connected.");
             {
                 std::lock_guard<std::mutex> lk(settings_mutex_);
                 pitch_.port = pitchMotor.getPortName();
-            } 
+            }
             save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Pitch motor."); }
-        if (clawMotor.autoConnect(claw_.port)){
+
+        if (!claw_.enabled) {
+            RCLCPP_INFO(this->get_logger(), "Claw motor disabled — skipping autoConnect.");
+        } else if (clawMotor.autoConnect(claw_.port)){
             RCLCPP_INFO(this->get_logger(), "Claw motor connected.");
             {
                 std::lock_guard<std::mutex> lk(settings_mutex_);
                 claw_.port = clawMotor.getPortName();
-            } 
+            }
             save_config_();
         } else { RCLCPP_ERROR(this->get_logger(), "Failed to connect to Claw motor."); }
 
@@ -201,8 +219,8 @@ ArmNode() : Node("arm_node"),
                     std::memory_order_relaxed);
                 control_mode_.store(msg->mode, std::memory_order_relaxed);
                 if (msg->mode == 1) {  // ARM mode
-                    target_hip_.store(msg->left_y,      std::memory_order_relaxed);
-                    target_shoulder_.store(msg->left_x,  std::memory_order_relaxed);
+                    target_hip_.store(msg->left_x,      std::memory_order_relaxed);
+                    target_shoulder_.store(msg->left_y,  std::memory_order_relaxed);
                     target_elbow_.store(msg->right_y,    std::memory_order_relaxed);
                     target_roll_.store(msg->right_x,     std::memory_order_relaxed);
                     target_pitch_.store(
@@ -291,6 +309,7 @@ ArmNode() : Node("arm_node"),
 
 private:
     void setHipRPM() {
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!hip_.enabled) return; }
         if (!hipMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Hip motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = hip_.port; }
@@ -307,6 +326,7 @@ private:
     }
 
     void setShoulderRPM() {
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!shoulder_.enabled) return; }
         if (!shoulderMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Shoulder motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = shoulder_.port; }
@@ -323,6 +343,7 @@ private:
     }
 
     void setElbowRPM() {
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!elbow_.enabled) return; }
         if (!elbowMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Elbow motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = elbow_.port; }
@@ -339,6 +360,7 @@ private:
     }
 
     void setRollRPM() {
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!roll_.enabled) return; }
         if (!rollMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Roll motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = roll_.port; }
@@ -355,6 +377,7 @@ private:
     }
 
     void setPitchRPM() {
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!pitch_.enabled) return; }
         if (!pitchMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Pitch motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = pitch_.port; }
@@ -371,6 +394,7 @@ private:
     }
 
     void setClawRPM() {
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!claw_.enabled) return; }
         if (!clawMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Claw motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = claw_.port; }
@@ -390,22 +414,28 @@ private:
 
     void publishTelemetry(VESC& motor, const std::string& name,
                           const MotorSettings& s, const TelemPub& pub) {
+        robot_msgs::msg::MotorTelemetry msg;
+        msg.motor_name       = name;
+        msg.control_mode     = s.control_mode;
+        msg.inverted         = s.inverted;
+        msg.rpm_limit        = s.rpm_limit;
+        msg.duty_cycle_limit = s.duty_cycle_limit;
+        msg.enabled          = s.enabled;
+        if (!s.enabled) {
+            // Publish phantom entry so the UI can see this slot is disabled
+            pub->publish(msg);
+            return;
+        }
         VESCData t;
         if (!motor.isConnected() || !motor.get_telemetry(t)) return;
-        robot_msgs::msg::MotorTelemetry msg;
         msg.motor_id         = t.motor_controller_id;
-        msg.motor_name       = name;
         msg.rpm              = t.rpm;
         msg.duty_cycle       = t.duty_cycle;
         msg.current_in       = t.current_in;
         msg.voltage          = t.input_voltage;
         msg.position         = t.position;
         msg.fault_code       = t.fault_code;
-        msg.control_mode     = s.control_mode;
-        msg.inverted         = s.inverted;
         msg.current_motor    = t.current_motor;
-        msg.rpm_limit        = s.rpm_limit;
-        msg.duty_cycle_limit = s.duty_cycle_limit;
         pub->publish(msg);
     }
 
@@ -471,6 +501,7 @@ private:
                     s.duty_cycle_limit = motors[idx].value("duty_cycle_limit", s.duty_cycle_limit);
                     s.control_mode     = static_cast<uint8_t>(motors[idx].value("control_mode", static_cast<int>(s.control_mode)));
                     s.inverted         = motors[idx].value("inverted",         s.inverted);
+                    s.enabled          = motors[idx].value("enabled",          s.enabled);
                     s.port             = motors[idx].value("port",             s.port);
                 }
             };
@@ -492,13 +523,21 @@ private:
                 h = hip_; sh = shoulder_; el = elbow_;
                 ro = roll_; pi = pitch_; cl = claw_;
             }
-            // config_data_ is only touched by this background thread — no lock needed
+            // Re-read the file before writing so we don't overwrite body_node's section
+            // (indices 0-3). Both nodes share the same config.json; writing from a stale
+            // in-memory copy would clobber the other node's port hints.
+            try {
+                std::ifstream fin(config_path_);
+                if (fin.is_open()) config_data_ = nlohmann::json::parse(fin);
+            } catch (...) { /* keep existing config_data_ as fallback */ }
+
             auto apply = [&](int idx, const MotorSettings& s) {
                 config_data_["motors"][idx]["id"]               = static_cast<int>(s.vesc_id);
                 config_data_["motors"][idx]["rpm_limit"]        = s.rpm_limit;
                 config_data_["motors"][idx]["duty_cycle_limit"] = s.duty_cycle_limit;
                 config_data_["motors"][idx]["control_mode"]     = static_cast<int>(s.control_mode);
                 config_data_["motors"][idx]["inverted"]         = s.inverted;
+                config_data_["motors"][idx]["enabled"]          = s.enabled;
                 config_data_["motors"][idx]["port"]             = s.port;
             };
             apply(4, h); apply(5, sh); apply(6, el);
@@ -523,20 +562,32 @@ private:
             case 9: t = &claw_;     v = &clawMotor;     break;
             default: return;  // Not an arm motor
         }
+        bool wasEnabled, nowEnabled;
         {
             std::lock_guard<std::mutex> lk(settings_mutex_);
+            wasEnabled          = t->enabled;
+            nowEnabled          = msg->enabled;
             t->vesc_id          = msg->motor_vesc_id;
             t->rpm_limit        = msg->rpm_limit;
             t->duty_cycle_limit = msg->duty_cycle_limit;
             t->control_mode     = msg->control_mode;
             t->inverted         = msg->inverted;
+            t->enabled          = msg->enabled;
             v->setId(msg->motor_vesc_id);
         }
+        if (wasEnabled && !nowEnabled) {
+            v->disconnect();
+            RCLCPP_INFO(get_logger(), "Motor [%u] %s disabled — disconnected.",
+                msg->config_index, msg->motor_name.c_str());
+        } else if (!wasEnabled && nowEnabled) {
+            RCLCPP_INFO(get_logger(), "Motor [%u] %s enabled — will reconnect on next drive tick.",
+                msg->config_index, msg->motor_name.c_str());
+        }
         RCLCPP_INFO(get_logger(),
-            "Config update [%u] %s: vesc_id=%u  rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s",
+            "Config update [%u] %s: vesc_id=%u  rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s  enabled=%s",
             msg->config_index, msg->motor_name.c_str(),
             msg->motor_vesc_id, msg->rpm_limit, msg->duty_cycle_limit, msg->control_mode,
-            msg->inverted ? "yes" : "no");
+            msg->inverted ? "yes" : "no", msg->enabled ? "yes" : "no");
         save_config_();
     }
 

@@ -22,6 +22,7 @@ namespace telemetry_ui {
 enum EditAction {
     ACT_MODE_TOGGLE = 0,
     ACT_INV_TOGGLE,
+    ACT_ENABLED_TOGGLE,
     ACT_APPLY,
 };
 
@@ -203,6 +204,7 @@ void MainWindow::onTelemetryReceived(const std_msgs::msg::String::SharedPtr msg)
         m.voltage          = mj.value("voltage", 0.0f);
         m.control_mode     = mj.value("control_mode", (uint8_t)0);
         m.inverted         = mj.value("inverted", false);
+        m.enabled          = mj.value("enabled", true);
         m.current_in       = mj.value("current_in", 0.0f);
         m.current_motor    = mj.value("current_motor", 0.0f);
         m.position         = mj.value("position", 0.0f);
@@ -217,19 +219,30 @@ void MainWindow::publishConfigUpdate(int configIndex)
 {
     if (!m_configPub || configIndex < 0 || configIndex >= NUM_MOTORS) return;
 
+    // Read motor_id and motor_name under the lock — onTelemetryReceived() writes
+    // m_motors from the ROS callback thread, so accessing without a lock is a data race.
+    uint8_t    vesId;
+    std::string vesName;
+    {
+        std::lock_guard<std::mutex> lock(m_motorMutex);
+        vesId   = m_motors[configIndex].motor_id;
+        vesName = m_motors[configIndex].motor_name;
+    }
+
     robot_msgs::msg::MotorConfig msg;
     msg.config_index     = static_cast<uint8_t>(configIndex);
-    msg.motor_vesc_id    = m_motors[configIndex].motor_id;
-    msg.motor_name       = m_motors[configIndex].motor_name;
+    msg.motor_vesc_id    = vesId;
+    msg.motor_name       = vesName;
     msg.rpm_limit        = m_editRpmLimit;
     msg.duty_cycle_limit = m_editDutyCycleLimit;
     msg.control_mode     = m_editControlMode;
     msg.inverted         = m_editInverted;
+    msg.enabled          = m_editEnabled;
 
     m_configPub->publish(msg);
-    spdlog::info("Published config for motor [{}] {}: rpm_limit={:.0f} duty={:.3f} mode={} inv={}",
-        configIndex, msg.motor_name, msg.rpm_limit, msg.duty_cycle_limit,
-        msg.control_mode, msg.inverted ? "yes" : "no");
+    spdlog::info("Published config for motor [{}] {}: rpm_limit={:.0f} duty={:.3f} mode={} inv={} enabled={}",
+        configIndex, vesName, msg.rpm_limit, msg.duty_cycle_limit,
+        msg.control_mode, msg.inverted ? "yes" : "no", msg.enabled ? "yes" : "no");
 }
 
 void MainWindow::publishConfigToSelection()
@@ -398,6 +411,7 @@ void MainWindow::handleMouseClick(int mx, int my, bool ctrlHeld)
             m_editDutyCycleLimit = m.duty_cycle_limit;
             m_editControlMode    = m.control_mode;
             m_editInverted       = m.inverted;
+            m_editEnabled        = m.enabled;
         }
     };
 
@@ -452,6 +466,10 @@ void MainWindow::handleMouseClick(int mx, int my, bool ctrlHeld)
                         return;
                     case ACT_INV_TOGGLE:
                         m_editInverted = !m_editInverted;
+                        if (!m_selectedMotors.empty()) publishConfigToSelection();
+                        return;
+                    case ACT_ENABLED_TOGGLE:
+                        m_editEnabled = !m_editEnabled;
                         if (!m_selectedMotors.empty()) publishConfigToSelection();
                         return;
                     case ACT_APPLY: {
@@ -840,6 +858,14 @@ void MainWindow::renderMotorCard(int x, int y, int w, int h,
     drawText(lx + 6, ty + 3, invStr, Colors::TEXT_DARK, m_font14);
     ty += 28;
 
+    // Enabled badge
+    const char* enStr = motor.enabled ? "ENABLED" : "DISABLED";
+    SDL_Color enBg = motor.enabled ? Colors::STAT_GOOD : Colors::STAT_CRIT;
+    int enBadgeW = 88;
+    drawFilledRect(lx, ty, enBadgeW, badgeH, enBg);
+    drawText(lx + 6, ty + 3, enStr, Colors::TEXT_DARK, m_font14);
+    ty += 28;
+
     // Current draw (side by side)
     std::snprintf(buf, sizeof(buf), "I_in: %.2fA", motor.current_in);
     drawText(lx, ty, buf, Colors::TEXT, m_font12);
@@ -1070,6 +1096,7 @@ void MainWindow::renderEditPanel(int x, int y, int w, int h)
         int refIdx = *m_selectedMotors.begin();
         if (modeSame) m_editControlMode = localMotors[refIdx].control_mode;
         if (invSame)  m_editInverted    = localMotors[refIdx].inverted;
+        m_editEnabled = localMotors[refIdx].enabled;
     }
 
     // Reference values for display
@@ -1158,6 +1185,21 @@ void MainWindow::renderEditPanel(int x, int y, int w, int h)
         drawText(col + (56 - tw) / 2, py + (btnH - th) / 2, invLabel, Colors::TEXT_DARK, m_font14);
     }
     m_editButtons.push_back({col, py, 56, btnH, ACT_INV_TOGGLE});
+    col += 56 + spacing * 2;
+
+    // Enabled toggle (instant apply on click)
+    drawText(col, py + 4, "En:", Colors::STAT_LABEL, m_font14);
+    col += 44;
+    const char* enLabel = m_editEnabled ? "ON" : "OFF";
+    SDL_Color   enBg    = m_editEnabled ? Colors::STAT_GOOD : Colors::STAT_CRIT;
+    drawFilledRect(col, py, 56, btnH, enBg);
+    drawBorderRect(col, py, 56, btnH, Colors::BORDER);
+    {
+        int tw = 0, th = 0;
+        TTF_SizeText(m_font14, enLabel, &tw, &th);
+        drawText(col + (56 - tw) / 2, py + (btnH - th) / 2, enLabel, Colors::TEXT_DARK, m_font14);
+    }
+    m_editButtons.push_back({col, py, 56, btnH, ACT_ENABLED_TOGGLE});
     col += 56 + spacing * 3;
 
     // Apply button (applies text box values to all selected motors)

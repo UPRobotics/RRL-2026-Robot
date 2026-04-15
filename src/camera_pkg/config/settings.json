@@ -6,7 +6,7 @@
       "ip": "192.168.0.200",
       "name": "Camera 1",
       "port": 554,
-      "rotation_deg": 0,
+      "rotation_deg": 90,
       "source_type": "rtsp",
       "url_highres": "rtsp://192.168.0.200:554/stream1",
       "url_lowres": "rtsp://192.168.0.200:554/stream2"
@@ -50,7 +50,7 @@
       "ip": "192.168.0.204",
       "name": "Camera 5",
       "port": 554,
-      "rotation_deg": 180,
+      "rotation_deg": 90,
       "source_type": "rtsp",
       "url_highres": "rtsp://admin:admin@192.168.0.204:554/profile0",
       "url_lowres": "rtsp://admin:admin@192.168.0.204:554/profile1"
@@ -61,7 +61,7 @@
       "ip": "192.168.0.205",
       "name": "Camera 6",
       "port": 554,
-      "rotation_deg": 0,
+      "rotation_deg": 270,
       "source_type": "rtsp",
       "url_highres": "rtsp://admin:admin@192.168.0.205:554/profile0",
       "url_lowres": "rtsp://admin:admin@192.168.0.205:554/profile1"
@@ -72,7 +72,7 @@
       "ip": "192.168.0.206",
       "name": "Camera 7",
       "port": 554,
-      "rotation_deg": 180,
+      "rotation_deg": 0,
       "source_type": "rtsp",
       "url_highres": "rtsp://admin:admin@192.168.0.206:554/profile0",
       "url_lowres": "rtsp://admin:admin@192.168.0.206:554/profile1"
@@ -80,12 +80,12 @@
     {
       "enabled": true,
       "id": "thermal",
-      "name": "Thermal Camera",
       "ip": "",
+      "name": "Thermal Camera",
       "port": 0,
+      "ros_topic": "/thermal_data",
       "rotation_deg": 0,
       "source_type": "thermal",
-      "ros_topic": "/thermal_data",
       "url_highres": "",
       "url_lowres": ""
     }
@@ -109,10 +109,10 @@
   },
   "grid_2x2": {
     "slots": [
-      -1,
-      -1,
-      -1,
-      -1
+      4,
+      6,
+      1,
+      5
     ]
   },
   "keybindings": {

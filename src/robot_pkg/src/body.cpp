@@ -34,6 +34,7 @@ struct MotorSettings {
     float       duty_cycle_limit = 1.0f;
     uint8_t     control_mode     = 0;
     bool        inverted         = false;
+    bool        enabled          = true; // false = skip autoConnect and drive
     std::string port             = "";   // last known ttyACM port (used as hint for autoConnect)
 };
 
@@ -89,45 +90,54 @@ class BodyNode : public rclcpp::Node{
                     }
                 });  // 👈 CIERRA AQUÍ
 
-                if(leftMotor.autoConnect(left_.port)){
+                if (!left_.enabled) {
+                    RCLCPP_INFO(this->get_logger(), "Left motor disabled — skipping autoConnect.");
+                } else if(leftMotor.autoConnect(left_.port)){
                     RCLCPP_INFO(this->get_logger(), "Left motor connected.");
                     {
                         std::lock_guard<std::mutex> lk(settings_mutex_);
-                        left_.port = leftMotor.getPortName(); 
+                        left_.port = leftMotor.getPortName();
                     }
-                    
                     save_config_();
-
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to left motor.");
                 }
-                if(rightMotor.autoConnect(right_.port)){
+
+                if (!right_.enabled) {
+                    RCLCPP_INFO(this->get_logger(), "Right motor disabled — skipping autoConnect.");
+                } else if(rightMotor.autoConnect(right_.port)){
                     RCLCPP_INFO(this->get_logger(), "Right motor connected.");
                     {
                         std::lock_guard<std::mutex> lk(settings_mutex_);
                         right_.port = rightMotor.getPortName();
-                    } 
+                    }
                     save_config_();
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to right motor.");
                 }
-                if(leftFlipperMotor.autoConnect(left_flipper_.port)){
+
+                if (!left_flipper_.enabled) {
+                    RCLCPP_INFO(this->get_logger(), "Flipper Trasero disabled — skipping autoConnect.");
+                } else if(leftFlipperMotor.autoConnect(left_flipper_.port)){
                     RCLCPP_INFO(this->get_logger(), "Flipper Trasero connected.");
                     {
                         std::lock_guard<std::mutex> lk(settings_mutex_);
-                        left_flipper_.port = leftFlipperMotor.getPortName(); 
+                        left_flipper_.port = leftFlipperMotor.getPortName();
                     }
-                save_config_();
+                    save_config_();
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to Flipper Trasero.");
                 }
-                if(rightFlipperMotor.autoConnect(right_flipper_.port)){
+
+                if (!right_flipper_.enabled) {
+                    RCLCPP_INFO(this->get_logger(), "Flipper Delantero disabled — skipping autoConnect.");
+                } else if(rightFlipperMotor.autoConnect(right_flipper_.port)){
                     RCLCPP_INFO(this->get_logger(), "Flipper Delantero connected.");
                     {
                         std::lock_guard<std::mutex> lk(settings_mutex_);
                         right_flipper_.port = rightFlipperMotor.getPortName();
                     }
-                     save_config_();
+                    save_config_();
                 } else {
                     RCLCPP_ERROR(this->get_logger(), "Failed to connect to Flipper Delantero.");
                 }
@@ -149,16 +159,12 @@ class BodyNode : public rclcpp::Node{
                         joystick_left_x.store(msg->left_x, std::memory_order_relaxed);
                         dpad_x_.store(msg->dpad_x, std::memory_order_relaxed);
                         dpad_y_.store(msg->dpad_y, std::memory_order_relaxed);
-                        if (msg->mode == 0) {  // MOVEMENT: compute flipper mixing
-                            float ry = msg->right_y, rx = msg->right_x;
-                            // front (delantero): full up + rightward contribution
-                            joystick_right_y.store(
-                                std::clamp(ry + std::max(0.0f,  rx), -1.0f, 1.0f),
-                                std::memory_order_relaxed);
-                            // rear (trasero): full up + leftward contribution
-                            joystick_right_x.store(
-                                std::clamp(ry + std::max(0.0f, -rx), -1.0f, 1.0f),
-                                std::memory_order_relaxed);
+                        if (msg->mode == 0) {  // MOVEMENT mode
+                            // right stick Y → front flipper (Delantero)
+                            // right stick X → rear flipper (Trasero)
+                            // diagonal → both move independently
+                            joystick_right_y.store(msg->right_y, std::memory_order_relaxed);
+                            joystick_right_x.store(msg->right_x, std::memory_order_relaxed);
                         } else {  // ARM mode: zero flippers before updating mode
                             joystick_right_y.store(0.0f, std::memory_order_relaxed);
                             joystick_right_x.store(0.0f, std::memory_order_relaxed);
@@ -255,6 +261,7 @@ class BodyNode : public rclcpp::Node{
     private:
 
     void driveLeft(){
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!left_.enabled) return; }
         if (!leftMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Left motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = left_.port; }
@@ -293,6 +300,7 @@ class BodyNode : public rclcpp::Node{
     }
 
     void driveRight(){
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!right_.enabled) return; }
         if (!rightMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Right motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = right_.port; }
@@ -331,6 +339,7 @@ class BodyNode : public rclcpp::Node{
     }
 
     void driveFrontFlipper(){   // flipper delantero ← right joystick Y
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!right_flipper_.enabled) return; }
         if (!rightFlipperMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Flipper Delantero disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = right_flipper_.port; }
@@ -353,6 +362,7 @@ class BodyNode : public rclcpp::Node{
     }
 
     void driveRearFlipper(){    // flipper trasero ← right joystick X
+        { std::lock_guard<std::mutex> lk(settings_mutex_); if (!left_flipper_.enabled) return; }
         if (!leftFlipperMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Flipper Trasero disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = left_flipper_.port; }
@@ -378,22 +388,28 @@ class BodyNode : public rclcpp::Node{
 
     void publishTelemetry(VESC& motor, const std::string& name,
                           const MotorSettings& s, const TelemPub& pub) {
+        robot_msgs::msg::MotorTelemetry msg;
+        msg.motor_name       = name;
+        msg.control_mode     = s.control_mode;
+        msg.inverted         = s.inverted;
+        msg.rpm_limit        = s.rpm_limit;
+        msg.duty_cycle_limit = s.duty_cycle_limit;
+        msg.enabled          = s.enabled;
+        if (!s.enabled) {
+            // Publish phantom entry so the UI can see this slot is disabled
+            pub->publish(msg);
+            return;
+        }
         VESCData t;
         if (!motor.isConnected() || !motor.get_telemetry(t)) return;
-        robot_msgs::msg::MotorTelemetry msg;
         msg.motor_id         = t.motor_controller_id;
-        msg.motor_name       = name;
         msg.rpm              = t.rpm;
         msg.duty_cycle       = t.duty_cycle;
         msg.current_in       = t.current_in;
         msg.voltage          = t.input_voltage;
         msg.position         = t.position;
         msg.fault_code       = t.fault_code;
-        msg.control_mode     = s.control_mode;
-        msg.inverted         = s.inverted;
         msg.current_motor    = t.current_motor;
-        msg.rpm_limit        = s.rpm_limit;
-        msg.duty_cycle_limit = s.duty_cycle_limit;
         pub->publish(msg);
     }
 
@@ -451,6 +467,7 @@ class BodyNode : public rclcpp::Node{
                     s.duty_cycle_limit = motors[idx].value("duty_cycle_limit", s.duty_cycle_limit);
                     s.control_mode     = static_cast<uint8_t>(motors[idx].value("control_mode", static_cast<int>(s.control_mode)));
                     s.inverted         = motors[idx].value("inverted",         s.inverted);
+                    s.enabled          = motors[idx].value("enabled",          s.enabled);
                     s.port             = motors[idx].value("port",             s.port);
                 }
             };
@@ -470,13 +487,21 @@ class BodyNode : public rclcpp::Node{
                 std::lock_guard<std::mutex> lk(settings_mutex_);
                 lf = left_flipper_; l = left_; r = right_; rf = right_flipper_;
             }
-            // config_data_ is only touched by this background thread — no lock needed
+            // Re-read the file before writing so we don't overwrite arm_node's section
+            // (indices 4-9). Both nodes share the same config.json; writing from a stale
+            // in-memory copy would clobber the other node's port hints.
+            try {
+                std::ifstream fin(config_path_);
+                if (fin.is_open()) config_data_ = nlohmann::json::parse(fin);
+            } catch (...) { /* keep existing config_data_ as fallback */ }
+
             auto apply = [&](int idx, const MotorSettings& s) {
                 config_data_["motors"][idx]["id"]               = static_cast<int>(s.vesc_id);
                 config_data_["motors"][idx]["rpm_limit"]        = s.rpm_limit;
                 config_data_["motors"][idx]["duty_cycle_limit"] = s.duty_cycle_limit;
                 config_data_["motors"][idx]["control_mode"]     = static_cast<int>(s.control_mode);
                 config_data_["motors"][idx]["inverted"]         = s.inverted;
+                config_data_["motors"][idx]["enabled"]          = s.enabled;
                 config_data_["motors"][idx]["port"]             = s.port;
             };
             apply(0, lf); apply(1, l); apply(2, r); apply(3, rf);
@@ -498,20 +523,32 @@ class BodyNode : public rclcpp::Node{
             case 3: t = &right_flipper_;v = &rightFlipperMotor;  break;
             default: return;  // Not a body motor
         }
+        bool wasEnabled, nowEnabled;
         {
             std::lock_guard<std::mutex> lk(settings_mutex_);
+            wasEnabled          = t->enabled;
+            nowEnabled          = msg->enabled;
             t->vesc_id          = msg->motor_vesc_id;
             t->rpm_limit        = msg->rpm_limit;
             t->duty_cycle_limit = msg->duty_cycle_limit;
             t->control_mode     = msg->control_mode;
             t->inverted         = msg->inverted;
+            t->enabled          = msg->enabled;
             v->setId(msg->motor_vesc_id);
         }
+        if (wasEnabled && !nowEnabled) {
+            v->disconnect();
+            RCLCPP_INFO(get_logger(), "Motor [%u] %s disabled — disconnected.",
+                msg->config_index, msg->motor_name.c_str());
+        } else if (!wasEnabled && nowEnabled) {
+            RCLCPP_INFO(get_logger(), "Motor [%u] %s enabled — will reconnect on next drive tick.",
+                msg->config_index, msg->motor_name.c_str());
+        }
         RCLCPP_INFO(get_logger(),
-            "Config update [%u] %s: vesc_id=%u  rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s",
+            "Config update [%u] %s: vesc_id=%u  rpm_limit=%.1f  duty=%.3f  mode=%u  inv=%s  enabled=%s",
             msg->config_index, msg->motor_name.c_str(),
             msg->motor_vesc_id, msg->rpm_limit, msg->duty_cycle_limit, msg->control_mode,
-            msg->inverted ? "yes" : "no");
+            msg->inverted ? "yes" : "no", msg->enabled ? "yes" : "no");
         save_config_();
     }
 
