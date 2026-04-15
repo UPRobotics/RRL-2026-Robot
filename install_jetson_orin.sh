@@ -174,6 +174,10 @@ sudo apt-get install -y -qq \
 ###############################################################################
 log "Installing Livox driver and Foxglove Bridge dependencies..."
 
+# octomap_server CMakeLists.txt declares a params/ install target that the
+# directory must exist for, even if empty.
+mkdir -p "${WS_DIR}/src/octomap_mapping/octomap_server/params"
+
 sudo apt install -y -qq \
     ros-humble-foxglove-bridge \
     ros-humble-pcl-ros \
