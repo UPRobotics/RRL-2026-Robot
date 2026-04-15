@@ -131,6 +131,7 @@ class Telemetry_publisher : public rclcpp::Node{
                     {"voltage",          m.voltage},
                     {"control_mode",     m.control_mode},
                     {"inverted",         m.inverted},
+                    {"enabled",          m.enabled},
                     {"current_in",       m.current_in},
                     {"position",         m.position},
                     {"fault_code",       m.fault_code},

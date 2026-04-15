@@ -55,6 +55,7 @@ struct MotorData {
     float       voltage          = 0.0f;
     uint8_t     control_mode     = 0;
     bool        inverted         = false;
+    bool        enabled          = true;
     bool        received         = false;
     float       current_in       = 0.0f;
     float       current_motor    = 0.0f;
@@ -200,6 +201,7 @@ private:
     float   m_editDutyCycleLimit = 0.0f;
     uint8_t m_editControlMode    = 0;
     bool    m_editInverted       = false;
+    bool    m_editEnabled        = true;
 
     // Text input state for edit panel
     enum FocusedField { FOCUS_NONE = 0, FOCUS_RPM, FOCUS_DUTY, FOCUS_DPAD_RPM, FOCUS_DPAD_DUTY };
