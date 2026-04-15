@@ -1,5 +1,7 @@
 #include "telemetry_ui_pkg/main_window.h"
 #include "telemetry_ui_pkg/json.hpp"
+#include <robot_msgs/msg/d_pad_config.hpp>
+#include <std_msgs/msg/u_int8.hpp>
 
 #include <spdlog/spdlog.h>
 #include <algorithm>
@@ -22,6 +24,12 @@ enum EditAction {
     ACT_INV_TOGGLE,
     ACT_APPLY,
 };
+
+// Motor group definitions — config_index values that belong together
+static const std::array<GroupDef, 2> MOTOR_GROUPS = {{
+    { "Flippers", {0, 3} },   // Flipper Trasero (0), Flipper Delantero (3)
+    { "Tracks",   {1, 2} },   // Track Izquierdo (1), Track Derecho (2)
+}};
 
 // -------------------------------------------------------
 // Construction / destruction
@@ -121,6 +129,18 @@ void MainWindow::setRosNode(rclcpp::Node::SharedPtr node)
         "/ground_station/motor_config", config_qos
     );
 
+    auto best_effort_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
+    m_modeSub = m_rosNode->create_subscription<std_msgs::msg::UInt8>(
+        "/robot/mode", best_effort_qos,
+        [this](const std_msgs::msg::UInt8::SharedPtr msg) {
+            m_currentMode.store(msg->data, std::memory_order_relaxed);
+        }
+    );
+
+    m_dpadConfigPub = m_rosNode->create_publisher<robot_msgs::msg::DPadConfig>(
+        "/ground_station/dpad_config", config_qos
+    );
+
     spdlog::info("ROS2 telemetry subscription and config publisher created");
 }
 
@@ -141,6 +161,8 @@ void MainWindow::shutdown()
 
     m_telemSub.reset();
     m_configPub.reset();
+    m_modeSub.reset();
+    m_dpadConfigPub.reset();
     m_rosNode.reset();
 
     if (m_font12) { TTF_CloseFont(m_font12); m_font12 = nullptr; }
@@ -210,6 +232,52 @@ void MainWindow::publishConfigUpdate(int configIndex)
         msg.control_mode, msg.inverted ? "yes" : "no");
 }
 
+void MainWindow::publishConfigToSelection()
+{
+    for (int idx : m_selectedMotors)
+        publishConfigUpdate(idx);
+}
+
+void MainWindow::publishDPadConfig()
+{
+    if (!m_dpadConfigPub) return;
+    robot_msgs::msg::DPadConfig msg;
+    msg.rpm_limit        = m_dpadRpmLimit;
+    msg.duty_cycle_limit = m_dpadDutyLimit;
+    m_dpadConfigPub->publish(msg);
+    spdlog::info("Published DPad config: rpm={:.0f} duty={:.3f}", m_dpadRpmLimit, m_dpadDutyLimit);
+}
+
+bool MainWindow::getCommonEditValues(
+    const std::array<MotorData, NUM_MOTORS>& motors,
+    bool& rpmSame, bool& dutySame, bool& modeSame, bool& invSame) const
+{
+    if (m_selectedMotors.empty()) return false;
+
+    float refRpm  = -1.0f;
+    float refDuty = -1.0f;
+    int   refMode = -1;
+    int   refInv  = -1;
+    rpmSame = dutySame = modeSame = invSame = true;
+
+    for (int idx : m_selectedMotors) {
+        if (idx < 0 || idx >= NUM_MOTORS || !motors[idx].received) continue;
+        const auto& m = motors[idx];
+        if (refRpm  < 0.0f)                      refRpm  = m.rpm_limit;
+        else if (m.rpm_limit != refRpm)           rpmSame = false;
+
+        if (refDuty < 0.0f)                       refDuty = m.duty_cycle_limit;
+        else if (m.duty_cycle_limit != refDuty)   dutySame = false;
+
+        if (refMode < 0)                          refMode = m.control_mode;
+        else if (m.control_mode != refMode)       modeSame = false;
+
+        if (refInv < 0)                           refInv = m.inverted ? 1 : 0;
+        else if ((m.inverted ? 1 : 0) != refInv)  invSame = false;
+    }
+    return true;
+}
+
 // -------------------------------------------------------
 // Event handling
 // -------------------------------------------------------
@@ -236,7 +304,8 @@ void MainWindow::handleEvents()
                 break;
             case SDL_MOUSEBUTTONDOWN:
                 if (e.button.button == SDL_BUTTON_LEFT) {
-                    handleMouseClick(e.button.x, e.button.y);
+                    SDL_Keymod mod = SDL_GetModState();
+                    handleMouseClick(e.button.x, e.button.y, (mod & KMOD_CTRL) != 0);
                 }
                 break;
             default:
@@ -248,7 +317,10 @@ void MainWindow::handleEvents()
 void MainWindow::handleTextInput(const char* text)
 {
     if (m_focusedField == FOCUS_NONE) return;
-    std::string& buf = (m_focusedField == FOCUS_RPM) ? m_rpmInputText : m_dutyInputText;
+    std::string& buf = (m_focusedField == FOCUS_RPM)       ? m_rpmInputText
+                     : (m_focusedField == FOCUS_DUTY)      ? m_dutyInputText
+                     : (m_focusedField == FOCUS_DPAD_RPM)  ? m_dpadRpmText
+                     :                                        m_dpadDutyText;
     // Only allow digits and decimal point
     for (const char* c = text; *c; ++c) {
         if ((*c >= '0' && *c <= '9') || *c == '.') {
@@ -260,7 +332,10 @@ void MainWindow::handleTextInput(const char* text)
 void MainWindow::handleKeyDown(SDL_Keycode key)
 {
     if (m_focusedField == FOCUS_NONE) return;
-    std::string& buf = (m_focusedField == FOCUS_RPM) ? m_rpmInputText : m_dutyInputText;
+    std::string& buf = (m_focusedField == FOCUS_RPM)       ? m_rpmInputText
+                     : (m_focusedField == FOCUS_DUTY)      ? m_dutyInputText
+                     : (m_focusedField == FOCUS_DPAD_RPM)  ? m_dpadRpmText
+                     :                                        m_dpadDutyText;
 
     if (key == SDLK_BACKSPACE && !buf.empty()) {
         buf.pop_back();
@@ -271,10 +346,17 @@ void MainWindow::handleKeyDown(SDL_Keycode key)
                 float val = std::stof(buf);
                 if (m_focusedField == FOCUS_RPM) {
                     m_editRpmLimit = roundf(std::max(0.0f, val) * 100.0f) / 100.0f;
-                } else {
+                    if (!m_selectedMotors.empty()) publishConfigToSelection();
+                } else if (m_focusedField == FOCUS_DUTY) {
                     m_editDutyCycleLimit = roundf(std::clamp(val, 0.0f, 1.0f) * 100.0f) / 100.0f;
+                    if (!m_selectedMotors.empty()) publishConfigToSelection();
+                } else if (m_focusedField == FOCUS_DPAD_RPM) {
+                    m_dpadRpmLimit = std::max(0.0f, val);
+                    publishDPadConfig();
+                } else if (m_focusedField == FOCUS_DPAD_DUTY) {
+                    m_dpadDutyLimit = std::clamp(val, 0.0f, 1.0f);
+                    publishDPadConfig();
                 }
-                if (m_selectedMotor >= 0) publishConfigUpdate(m_selectedMotor);
             } catch (...) {}
         }
         m_focusedField = FOCUS_NONE;
@@ -304,8 +386,21 @@ void MainWindow::handleKeyDown(SDL_Keycode key)
     }
 }
 
-void MainWindow::handleMouseClick(int mx, int my)
+void MainWindow::handleMouseClick(int mx, int my, bool ctrlHeld)
 {
+    // Helper: load edit state from the first selected motor
+    auto loadEditFromSelection = [this]() {
+        if (!m_selectedMotors.empty()) {
+            int refIdx = *m_selectedMotors.begin();
+            std::lock_guard<std::mutex> lock(m_motorMutex);
+            const auto& m = m_motors[refIdx];
+            m_editRpmLimit       = m.rpm_limit;
+            m_editDutyCycleLimit = m.duty_cycle_limit;
+            m_editControlMode    = m.control_mode;
+            m_editInverted       = m.inverted;
+        }
+    };
+
     // Check edit panel interactions (always visible)
     {
         // Check text box clicks
@@ -314,16 +409,25 @@ void MainWindow::handleMouseClick(int mx, int my)
             if (pointInRect(mx, my, tb.x, tb.y, tb.w, tb.h)) {
                 m_focusedField = tb.field;
                 SDL_StartTextInput();
-                // Initialize text buffer from live motor data
-                if (m_selectedMotor >= 0) {
+                if (tb.field == FOCUS_DPAD_RPM) {
+                    char buf[32];
+                    std::snprintf(buf, sizeof(buf), "%.0f", m_dpadRpmLimit);
+                    m_dpadRpmText = buf;
+                } else if (tb.field == FOCUS_DPAD_DUTY) {
+                    char buf[32];
+                    std::snprintf(buf, sizeof(buf), "%.3f", m_dpadDutyLimit);
+                    m_dpadDutyText = buf;
+                } else if (!m_selectedMotors.empty()) {
+                    // Initialize text buffer from first selected motor
+                    int refIdx = *m_selectedMotors.begin();
                     std::lock_guard<std::mutex> lock(m_motorMutex);
                     if (tb.field == FOCUS_RPM) {
-                        m_editRpmLimit = m_motors[m_selectedMotor].rpm_limit;
+                        m_editRpmLimit = m_motors[refIdx].rpm_limit;
                         char buf[32];
                         std::snprintf(buf, sizeof(buf), "%.2f", m_editRpmLimit);
                         m_rpmInputText = buf;
                     } else {
-                        m_editDutyCycleLimit = m_motors[m_selectedMotor].duty_cycle_limit;
+                        m_editDutyCycleLimit = m_motors[refIdx].duty_cycle_limit;
                         char buf[32];
                         std::snprintf(buf, sizeof(buf), "%.2f", m_editDutyCycleLimit);
                         m_dutyInputText = buf;
@@ -337,7 +441,6 @@ void MainWindow::handleMouseClick(int mx, int my)
         // Check button clicks
         for (const auto& btn : m_editButtons) {
             if (pointInRect(mx, my, btn.x, btn.y, btn.w, btn.h)) {
-                // Unfocus text if clicking a button
                 if (m_focusedField != FOCUS_NONE) {
                     m_focusedField = FOCUS_NONE;
                     SDL_StopTextInput();
@@ -345,33 +448,32 @@ void MainWindow::handleMouseClick(int mx, int my)
                 switch (btn.action) {
                     case ACT_MODE_TOGGLE:
                         m_editControlMode = (m_editControlMode == 0) ? 1 : 0;
-                        if (m_selectedMotor >= 0) publishConfigUpdate(m_selectedMotor);
+                        if (!m_selectedMotors.empty()) publishConfigToSelection();
                         return;
                     case ACT_INV_TOGGLE:
                         m_editInverted = !m_editInverted;
-                        if (m_selectedMotor >= 0) publishConfigUpdate(m_selectedMotor);
+                        if (!m_selectedMotors.empty()) publishConfigToSelection();
                         return;
                     case ACT_APPLY: {
-                        // Commit text box values then publish
                         if (!m_rpmInputText.empty()) {
                             try {
                                 float val = std::stof(m_rpmInputText);
                                 m_editRpmLimit = roundf(std::max(0.0f, val) * 100.0f) / 100.0f;
                             } catch (...) {}
-                        } else if (m_selectedMotor >= 0) {
+                        } else if (!m_selectedMotors.empty()) {
                             std::lock_guard<std::mutex> lock(m_motorMutex);
-                            m_editRpmLimit = m_motors[m_selectedMotor].rpm_limit;
+                            m_editRpmLimit = m_motors[*m_selectedMotors.begin()].rpm_limit;
                         }
                         if (!m_dutyInputText.empty()) {
                             try {
                                 float val = std::stof(m_dutyInputText);
                                 m_editDutyCycleLimit = roundf(std::clamp(val, 0.0f, 1.0f) * 100.0f) / 100.0f;
                             } catch (...) {}
-                        } else if (m_selectedMotor >= 0) {
+                        } else if (!m_selectedMotors.empty()) {
                             std::lock_guard<std::mutex> lock(m_motorMutex);
-                            m_editDutyCycleLimit = m_motors[m_selectedMotor].duty_cycle_limit;
+                            m_editDutyCycleLimit = m_motors[*m_selectedMotors.begin()].duty_cycle_limit;
                         }
-                        if (m_selectedMotor >= 0) publishConfigUpdate(m_selectedMotor);
+                        if (!m_selectedMotors.empty()) publishConfigToSelection();
                         m_focusedField = FOCUS_NONE;
                         SDL_StopTextInput();
                         return;
@@ -391,20 +493,41 @@ void MainWindow::handleMouseClick(int mx, int my)
     for (const auto& card : m_cardRects) {
         if (card.configIndex < 0) continue;
         if (pointInRect(mx, my, card.x, card.y, card.w, card.h)) {
-            if (m_selectedMotor == card.configIndex) {
-                // Clicking same card deselects it
-                m_selectedMotor = -1;
+            if (ctrlHeld) {
+                // Ctrl+Click: toggle this motor in/out of selection
+                if (m_selectedMotors.count(card.configIndex))
+                    m_selectedMotors.erase(card.configIndex);
+                else
+                    m_selectedMotors.insert(card.configIndex);
             } else {
-                m_selectedMotor = card.configIndex;
-                // Load current values from live motor data
-                std::lock_guard<std::mutex> lock(m_motorMutex);
-                const auto& m = m_motors[card.configIndex];
-                m_editRpmLimit       = m.rpm_limit;
-                m_editDutyCycleLimit = m.duty_cycle_limit;
-                m_editControlMode    = m.control_mode;
-                m_editInverted       = m.inverted;
+                // Plain click: single-select, or deselect if it's the only one
+                if (m_selectedMotors.size() == 1 && m_selectedMotors.count(card.configIndex))
+                    m_selectedMotors.clear();
+                else {
+                    m_selectedMotors.clear();
+                    m_selectedMotors.insert(card.configIndex);
+                }
             }
-            // Clear any active text input on motor change
+            loadEditFromSelection();
+            m_focusedField = FOCUS_NONE;
+            SDL_StopTextInput();
+            return;
+        }
+    }
+
+    // Check group card clicks
+    for (const auto& gc : m_groupCardRects) {
+        if (pointInRect(mx, my, gc.x, gc.y, gc.w, gc.h)) {
+            const auto& group = MOTOR_GROUPS[gc.groupIndex];
+            bool allSelected = true;
+            for (int idx : group.configIndices)
+                if (!m_selectedMotors.count(idx)) { allSelected = false; break; }
+            if (allSelected) {
+                for (int idx : group.configIndices) m_selectedMotors.erase(idx);
+            } else {
+                for (int idx : group.configIndices) m_selectedMotors.insert(idx);
+            }
+            loadEditFromSelection();
             m_focusedField = FOCUS_NONE;
             SDL_StopTextInput();
             return;
@@ -441,14 +564,36 @@ void MainWindow::renderMainArea(int winW, int winH)
     int gridW = winW - sidebarW;
     if (gridW < 200) { gridW = winW; sidebarW = 0; }
 
-    const int editH = EDIT_PANEL_H;
-    int gridH = mainH - editH;
+    const int editH  = EDIT_PANEL_H;
+    const int groupH = GROUP_ROW_H;
+    int gridH        = mainH - editH - groupH;
+    if (gridH < 100) gridH = 100;
+    int gridOriginY  = groupH;
 
     // Copy motor data under lock
     std::array<MotorData, NUM_MOTORS> localMotors;
     {
         std::lock_guard<std::mutex> lock(m_motorMutex);
         localMotors = m_motors;
+    }
+
+    // Render group cards row
+    m_groupCardRects.clear();
+    {
+        int numG = static_cast<int>(MOTOR_GROUPS.size());
+        int gcW  = (gridW - CARD_PAD * (numG + 1)) / numG;
+        int gcH  = groupH - CARD_PAD * 2;
+        for (int g = 0; g < numG; ++g) {
+            int gx = CARD_PAD + g * (gcW + CARD_PAD);
+            int gy = CARD_PAD;
+            int selCount = 0;
+            for (int idx : MOTOR_GROUPS[g].configIndices)
+                if (m_selectedMotors.count(idx)) ++selCount;
+            int total = static_cast<int>(MOTOR_GROUPS[g].configIndices.size());
+            int state = (selCount == 0) ? 0 : (selCount == total) ? 2 : 1;
+            renderGroupCard(gx, gy, gcW, gcH, MOTOR_GROUPS[g], localMotors, state);
+            m_groupCardRects.push_back({gx, gy, gcW, gcH, g});
+        }
     }
 
     // Collect only active (received) motors
@@ -459,8 +604,8 @@ void MainWindow::renderMainArea(int winW, int winH)
         }
     }
 
-    // Render grid background
-    renderMotorGrid(0, 0, gridW, gridH);
+    // Render grid background (below group row)
+    renderMotorGrid(0, gridOriginY, gridW, gridH);
 
     // Dynamic grid: compute cols/rows based on active motor count
     m_cardRects.clear();
@@ -482,26 +627,30 @@ void MainWindow::renderMainArea(int winW, int winH)
             int col = i % cols;
             int row = i / cols;
             int cx = CARD_PAD + col * (cardW + CARD_PAD);
-            int cy = CARD_PAD + row * (cardH + CARD_PAD);
+            int cy = gridOriginY + CARD_PAD + row * (cardH + CARD_PAD);
 
-            bool selected = (m_selectedMotor == configIdx);
+            bool selected = m_selectedMotors.count(configIdx) > 0;
             renderMotorCard(cx, cy, cardW, cardH, localMotors[configIdx], selected);
 
             m_cardRects.push_back({cx, cy, cardW, cardH, configIdx});
         }
     } else {
         // No motors connected yet
-        drawText(CARD_PAD + 10, CARD_PAD + 10,
+        drawText(CARD_PAD + 10, gridOriginY + CARD_PAD + 10,
                  "Waiting for motor telemetry...", Colors::STAT_LABEL, m_font14);
     }
 
-    // If selected motor disconnected, deselect it
-    if (m_selectedMotor >= 0 && !localMotors[m_selectedMotor].received) {
-        m_selectedMotor = -1;
+    // Remove stale selections (motors that lost telemetry)
+    {
+        std::vector<int> toErase;
+        for (int idx : m_selectedMotors)
+            if (idx < 0 || idx >= NUM_MOTORS || !localMotors[idx].received)
+                toErase.push_back(idx);
+        for (int idx : toErase) m_selectedMotors.erase(idx);
     }
 
     // Edit panel always visible at bottom
-    renderEditPanel(0, gridH, gridW, editH);
+    renderEditPanel(0, gridOriginY + gridH, gridW, editH);
 
     // Render sidebar
     if (sidebarW > 0) {
@@ -512,6 +661,79 @@ void MainWindow::renderMainArea(int winW, int winH)
 void MainWindow::renderMotorGrid(int x, int y, int w, int h)
 {
     drawFilledRect(x, y, w, h, Colors::BACKGROUND);
+}
+
+void MainWindow::renderGroupCard(int x, int y, int w, int h,
+                                  const GroupDef& group,
+                                  const std::array<MotorData, NUM_MOTORS>& motors,
+                                  int selectionState)
+{
+    // Background
+    SDL_Color bg = (selectionState == 2) ? Colors::CARD_SELECT : Colors::CARD_BG;
+    drawFilledRect(x, y, w, h, bg);
+
+    // Border
+    bool anyFault = false;
+    float sumCurrent = 0.0f;
+    float sumVoltage = 0.0f;
+    int   voltCount  = 0;
+    for (int idx : group.configIndices) {
+        if (idx < 0 || idx >= NUM_MOTORS || !motors[idx].received) continue;
+        sumCurrent += motors[idx].current_in;
+        sumVoltage += motors[idx].voltage;
+        voltCount++;
+        if (motors[idx].fault_code != 0) anyFault = true;
+    }
+    float avgVoltage = (voltCount > 0) ? (sumVoltage / voltCount) : 0.0f;
+
+    if (anyFault) {
+        bool blinkOn = ((SDL_GetTicks() / 500) % 2) == 0;
+        drawBorderRect(x, y, w, h, blinkOn ? Colors::STAT_CRIT : Colors::CARD_BG);
+    } else if (selectionState == 2) {
+        drawBorderRect(x, y, w, h, Colors::ACCENT_BLUE);
+    } else if (selectionState == 1) {
+        SDL_Color partialBorder = {
+            static_cast<Uint8>((Colors::ACCENT_BLUE.r + Colors::BORDER.r) / 2),
+            static_cast<Uint8>((Colors::ACCENT_BLUE.g + Colors::BORDER.g) / 2),
+            static_cast<Uint8>((Colors::ACCENT_BLUE.b + Colors::BORDER.b) / 2),
+            255
+        };
+        drawBorderRect(x, y, w, h, partialBorder);
+    } else {
+        drawBorderRect(x, y, w, h, Colors::BORDER);
+    }
+
+    SDL_Rect clip = {x, y, w, h};
+    SDL_RenderSetClipRect(m_renderer, &clip);
+
+    char buf[64];
+    int lx = x + 8;
+    int ty = y + 6;
+
+    // Group name (left column)
+    drawText(lx, ty, group.name, Colors::TEXT, m_font16);
+    ty += 22;
+    std::snprintf(buf, sizeof(buf), "%d motors", static_cast<int>(group.configIndices.size()));
+    drawText(lx, ty, buf, Colors::STAT_LABEL, m_font12);
+
+    // Aggregate stats (right column)
+    int rx  = x + w - 130;
+    int rty = y + 6;
+
+    const char* faultLabel = anyFault ? "FAULT" : "OK";
+    drawText(rx, rty, faultLabel, anyFault ? Colors::STAT_CRIT : Colors::STAT_GOOD, m_font12);
+    rty += 18;
+
+    std::snprintf(buf, sizeof(buf), "I: %.2fA", sumCurrent);
+    drawText(rx, rty, buf, Colors::TEXT, m_font12);
+    rty += 16;
+
+    std::snprintf(buf, sizeof(buf), "V: %.2fV", avgVoltage);
+    SDL_Color vCol = (avgVoltage > 20.0f) ? Colors::STAT_GOOD :
+                     (avgVoltage > 15.0f) ? Colors::STAT_WARN : Colors::STAT_CRIT;
+    drawText(rx, rty, buf, vCol, m_font12);
+
+    SDL_RenderSetClipRect(m_renderer, nullptr);
 }
 
 void MainWindow::renderMotorCard(int x, int y, int w, int h,
@@ -654,6 +876,22 @@ void MainWindow::renderSidebar(int x, int y, int w, int h)
     int px = x + 10;
     int py = y + 10;
 
+    // --- Mode banner ---
+    {
+        uint8_t curMode  = m_currentMode.load(std::memory_order_relaxed);
+        const char* ml   = (curMode == 0) ? "MOVEMENT" : "ARM";
+        SDL_Color modeCol = (curMode == 0) ? Colors::ACCENT_BLUE : Colors::STAT_WARN;
+        drawFilledRect(x, y, w, 46, Colors::CARD_BG);
+        int tw = 0, th = 0;
+        TTF_SizeText(m_font22, ml, &tw, &th);
+        drawText(x + (w - tw) / 2, y + (46 - th) / 2, ml, modeCol, m_font22);
+        SDL_SetRenderDrawColor(m_renderer,
+            Colors::BORDER.r, Colors::BORDER.g,
+            Colors::BORDER.b, Colors::BORDER.a);
+        SDL_RenderDrawLine(m_renderer, px, y + 48, x + w - 10, y + 48);
+        py = y + 56;
+    }
+
     drawText(px, py, "SYSTEM POWER", Colors::TEXT, m_font16);
     py += 28;
 
@@ -744,6 +982,34 @@ void MainWindow::renderSidebar(int x, int y, int w, int h)
         py += 14;
     }
 
+    // --- D-pad limits section ---
+    if (py + 90 < y + h) {
+        SDL_SetRenderDrawColor(m_renderer,
+            Colors::BORDER.r, Colors::BORDER.g,
+            Colors::BORDER.b, Colors::BORDER.a);
+        SDL_RenderDrawLine(m_renderer, px, py, x + w - 10, py);
+        py += 8;
+        drawText(px, py, "D-PAD LIMITS", Colors::TEXT, m_font14);
+        py += 22;
+
+        int tbX = px + 55, tbW = w - 65, tbH = 22;
+
+        drawText(px, py + 4, "RPM:", Colors::STAT_LABEL, m_font12);
+        char rpmbuf[32];
+        std::snprintf(rpmbuf, sizeof(rpmbuf), "%.0f", m_dpadRpmLimit);
+        std::string rpmDisp = (m_focusedField == FOCUS_DPAD_RPM) ? m_dpadRpmText : std::string(rpmbuf);
+        drawTextBox(tbX, py, tbW, tbH, rpmDisp, m_focusedField == FOCUS_DPAD_RPM, m_font12);
+        m_textBoxRects.push_back({tbX, py, tbW, tbH, FOCUS_DPAD_RPM});
+        py += 28;
+
+        drawText(px, py + 4, "Duty:", Colors::STAT_LABEL, m_font12);
+        char dutybuf[32];
+        std::snprintf(dutybuf, sizeof(dutybuf), "%.3f", m_dpadDutyLimit);
+        std::string dutyDisp = (m_focusedField == FOCUS_DPAD_DUTY) ? m_dpadDutyText : std::string(dutybuf);
+        drawTextBox(tbX, py, tbW, tbH, dutyDisp, m_focusedField == FOCUS_DPAD_DUTY, m_font12);
+        m_textBoxRects.push_back({tbX, py, tbW, tbH, FOCUS_DPAD_DUTY});
+    }
+
     SDL_RenderSetClipRect(m_renderer, nullptr);
 }
 
@@ -767,7 +1033,7 @@ void MainWindow::renderEditPanel(int x, int y, int w, int h)
     int px = x + 15;
     int py = y + 10;
 
-    if (m_selectedMotor < 0 || m_selectedMotor >= NUM_MOTORS) {
+    if (m_selectedMotors.empty()) {
         // No motor selected — show hint
         drawText(px, py + (h - 20) / 2,
                  "Click a motor card to configure it",
@@ -776,49 +1042,76 @@ void MainWindow::renderEditPanel(int x, int y, int w, int h)
         return;
     }
 
-    // Read live motor data for display (not focused fields) and control state
-    std::string motorName;
-    float liveRpmLimit       = 0.0f;
-    float liveDutyLimit      = 0.0f;
+    // Read motor data snapshot for display
+    std::array<MotorData, NUM_MOTORS> localMotors;
     {
         std::lock_guard<std::mutex> lock(m_motorMutex);
-        const auto& m = m_motors[m_selectedMotor];
-        motorName       = m.motor_name;
-        liveRpmLimit    = m.rpm_limit;
-        liveDutyLimit   = m.duty_cycle_limit;
-        // Keep control state in sync when not editing
-        if (m_focusedField == FOCUS_NONE) {
-            m_editControlMode = m.control_mode;
-            m_editInverted    = m.inverted;
-        }
+        localMotors = m_motors;
     }
 
+    bool rpmSame, dutySame, modeSame, invSame;
+    getCommonEditValues(localMotors, rpmSame, dutySame, modeSame, invSame);
+
+    // Header line
     char buf[128];
-    std::snprintf(buf, sizeof(buf), "CONFIGURE: %s [%d]", motorName.c_str(), m_selectedMotor);
+    if (m_selectedMotors.size() == 1) {
+        int idx = *m_selectedMotors.begin();
+        std::snprintf(buf, sizeof(buf), "CONFIGURE: %s [%d]",
+                      localMotors[idx].motor_name.c_str(), idx);
+    } else {
+        std::snprintf(buf, sizeof(buf), "CONFIGURE: %zu motors selected",
+                      m_selectedMotors.size());
+    }
     drawText(px, py, buf, Colors::TEXT, m_font16);
     py += 30;
 
-    int btnH  = 26;
-    int tbW   = 110;
-    int spacing = 10;
-    int col   = px;
+    // Sync control state when not actively typing (only when values agree)
+    if (m_focusedField == FOCUS_NONE && !m_selectedMotors.empty()) {
+        int refIdx = *m_selectedMotors.begin();
+        if (modeSame) m_editControlMode = localMotors[refIdx].control_mode;
+        if (invSame)  m_editInverted    = localMotors[refIdx].inverted;
+    }
 
-    // RPM Limit — label + text box (shows live value when not focused)
+    // Reference values for display
+    float liveRpmLimit  = 0.0f;
+    float liveDutyLimit = 0.0f;
+    if (!m_selectedMotors.empty()) {
+        int refIdx = *m_selectedMotors.begin();
+        liveRpmLimit  = localMotors[refIdx].rpm_limit;
+        liveDutyLimit = localMotors[refIdx].duty_cycle_limit;
+    }
+
+    int btnH    = 26;
+    int tbW     = 110;
+    int spacing = 10;
+    int col     = px;
+
+    // RPM Limit — label + text box
     drawText(col, py + 4, "RPM Limit:", Colors::STAT_LABEL, m_font14);
     col += 120;
 
-    std::snprintf(buf, sizeof(buf), "%.2f", liveRpmLimit);
-    std::string rpmDisplay = (m_focusedField == FOCUS_RPM) ? m_rpmInputText : std::string(buf);
+    std::string rpmDisplay;
+    if (m_focusedField == FOCUS_RPM) {
+        rpmDisplay = m_rpmInputText;
+    } else if (rpmSame) {
+        std::snprintf(buf, sizeof(buf), "%.2f", liveRpmLimit);
+        rpmDisplay = buf;
+    }  // else empty — mixed values
     drawTextBox(col, py, tbW, btnH, rpmDisplay, m_focusedField == FOCUS_RPM, m_font14);
     m_textBoxRects.push_back({col, py, tbW, btnH, FOCUS_RPM});
     col += tbW + spacing * 3;
 
-    // Duty Cycle Limit — label + text box (shows live value when not focused)
+    // Duty Cycle Limit — label + text box
     drawText(col, py + 4, "Duty Limit:", Colors::STAT_LABEL, m_font14);
     col += 125;
 
-    std::snprintf(buf, sizeof(buf), "%.2f", liveDutyLimit);
-    std::string dutyDisplay = (m_focusedField == FOCUS_DUTY) ? m_dutyInputText : std::string(buf);
+    std::string dutyDisplay;
+    if (m_focusedField == FOCUS_DUTY) {
+        dutyDisplay = m_dutyInputText;
+    } else if (dutySame) {
+        std::snprintf(buf, sizeof(buf), "%.2f", liveDutyLimit);
+        dutyDisplay = buf;
+    }  // else empty — mixed values
     drawTextBox(col, py, tbW, btnH, dutyDisplay, m_focusedField == FOCUS_DUTY, m_font14);
     m_textBoxRects.push_back({col, py, tbW, btnH, FOCUS_DUTY});
     col += tbW + spacing * 3;
@@ -826,8 +1119,15 @@ void MainWindow::renderEditPanel(int x, int y, int w, int h)
     // Mode toggle (instant apply on click)
     drawText(col, py + 4, "Mode:", Colors::STAT_LABEL, m_font14);
     col += 72;
-    const char* modeLabel = (m_editControlMode == 0) ? "RPM" : "DUTY";
-    SDL_Color modeBg = (m_editControlMode == 0) ? Colors::STAT_GOOD : Colors::STAT_WARN;
+    const char* modeLabel;
+    SDL_Color   modeBg;
+    if (!modeSame) {
+        modeLabel = "MIX";
+        modeBg    = Colors::BUTTON_BG;
+    } else {
+        modeLabel = (m_editControlMode == 0) ? "RPM" : "DUTY";
+        modeBg    = (m_editControlMode == 0) ? Colors::STAT_GOOD : Colors::STAT_WARN;
+    }
     drawFilledRect(col, py, 70, btnH, modeBg);
     drawBorderRect(col, py, 70, btnH, Colors::BORDER);
     {
@@ -841,8 +1141,15 @@ void MainWindow::renderEditPanel(int x, int y, int w, int h)
     // Inverted toggle (instant apply on click)
     drawText(col, py + 4, "Inv:", Colors::STAT_LABEL, m_font14);
     col += 50;
-    const char* invLabel = m_editInverted ? "YES" : "NO";
-    SDL_Color invBg = m_editInverted ? Colors::STAT_WARN : Colors::STAT_GOOD;
+    const char* invLabel;
+    SDL_Color   invBg;
+    if (!invSame) {
+        invLabel = "MIX";
+        invBg    = Colors::BUTTON_BG;
+    } else {
+        invLabel = m_editInverted ? "YES" : "NO";
+        invBg    = m_editInverted ? Colors::STAT_WARN : Colors::STAT_GOOD;
+    }
     drawFilledRect(col, py, 56, btnH, invBg);
     drawBorderRect(col, py, 56, btnH, Colors::BORDER);
     {
@@ -853,7 +1160,7 @@ void MainWindow::renderEditPanel(int x, int y, int w, int h)
     m_editButtons.push_back({col, py, 56, btnH, ACT_INV_TOGGLE});
     col += 56 + spacing * 3;
 
-    // Apply button (applies text box values)
+    // Apply button (applies text box values to all selected motors)
     drawButton(col, py, 80, btnH, "APPLY", Colors::ACCENT_BLUE, m_font14);
     m_editButtons.push_back({col, py, 80, btnH, ACT_APPLY});
 

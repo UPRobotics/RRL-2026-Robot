@@ -9,9 +9,10 @@
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.15000000596046448,
-      "id": 2,
+      "id": 5,
       "inverted": true,
       "name": "Flipper Trasero",
+      "port": "/dev/ttyACM1",
       "rpm_limit": 1500.0
     },
     {
@@ -20,70 +21,79 @@
       "id": 3,
       "inverted": false,
       "name": "Track Izquierdo",
+      "port": "/dev/ttyACM5",
       "rpm_limit": 1500.0
     },
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.30000001192092896,
-      "id": 5,
+      "id": 6,
       "inverted": true,
       "name": "Track Derecho",
+      "port": "/dev/ttyACM3",
       "rpm_limit": 1500.0
     },
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.15000000596046448,
-      "id": 4,
+      "id": 1,
       "inverted": false,
       "name": "Flipper Delantero",
+      "port": "/dev/ttyACM0",
       "rpm_limit": 1500.0
     },
     {
-      "control_mode": 0,
-      "duty_cycle_limit": 0.1,
-      "id": 0,
+      "control_mode": 1,
+      "duty_cycle_limit": 0.10000000149011612,
+      "id": 8,
       "inverted": false,
       "name": "Cadera",
+      "port": "/dev/ttyACM7",
       "rpm_limit": 3000.0
     },
     {
       "control_mode": 1,
-      "duty_cycle_limit": 0.1,
-      "id": 10,
+      "duty_cycle_limit": 0.10000000149011612,
+      "id": 4,
       "inverted": false,
       "name": "Hombro",
+      "port": "/dev/ttyACM2",
       "rpm_limit": 3000.0
     },
     {
       "control_mode": 1,
-      "duty_cycle_limit": 0.1,
-      "id": 6,
+      "duty_cycle_limit": 0.10000000149011612,
+      "id": 99,
       "inverted": false,
       "name": "Codo",
+      "port": "/dev/ttyACM3",
       "rpm_limit": 3000.0
     },
     {
       "control_mode": 0,
-      "duty_cycle_limit": 0.1,
+      "duty_cycle_limit": 0.10000000149011612,
       "id": 7,
       "inverted": false,
       "name": "Roll",
+      "port": "/dev/ttyACM4",
       "rpm_limit": 2000.0
     },
     {
-      "control_mode": 1,
-      "duty_cycle_limit": 0.1,
-      "id": 8,
+      "control_mode": 0,
+      "duty_cycle_limit": 0.15000000596046448,
+      "id": 2,
       "inverted": false,
       "name": "Pitch",
-      "rpm_limit": 1000.0
+      "port": "/dev/ttyACM6",
+      "rpm_limit": 1500.0
     },
     {
       "control_mode": 1,
-      "duty_cycle_limit": 0.1,
-      "id": 9,
+      "duty_cycle_limit": 0.10000000149011612,
+      "id": 98,
       "inverted": false,
       "name": "Grip",
+      "port": "",
       "rpm_limit": 1000.0
     }
   ]

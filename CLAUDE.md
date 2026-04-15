@@ -1,4 +1,6 @@
-# RRL-2026-Robot — Claude Context
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ROS 2 Humble workspace for a mobile rescue robot. Runs on Ubuntu 22.04 (x86_64)
 and NVIDIA Jetson Orin (aarch64). All C++ packages use `ament_cmake`; magnetometer
@@ -10,9 +12,9 @@ is pure Python (`ament_python`).
 
 | Package | Lang | What it does |
 |---------|------|--------------|
-| `robot_msgs` | IDL | Custom message types (MotorTelemetry, MotorConfig) |
+| `robot_msgs` | IDL | Custom message types — see Message Definitions below |
 | `robot_pkg` | C++ | VESC motor control — body (4 motors) + arm (6 motors) |
-| `control_pkg` | C++ | Joystick → directional topics |
+| `control_pkg` | C++ | Reads `/joy`, publishes `ControlInput` + mode toggle; runs on ground station |
 | `camera_pkg` | C++ | Multi-RTSP camera viewer — **desktop only, skip on Jetson** |
 | `detections_pkg` | C++ | QR / motion / hazmat detection — **desktop only, skip on Jetson** |
 | `thermal_pkg` | C++ | MLX90640 thermal camera reader + display |
@@ -23,6 +25,54 @@ is pure Python (`ament_python`).
 
 ---
 
+## Build
+
+```bash
+# Full build
+source /opt/ros/humble/setup.bash
+colcon build --symlink-install
+source install/setup.bash
+
+# Jetson (skip desktop-only packages)
+colcon build --symlink-install \
+  --packages-ignore camera_pkg detections_pkg
+
+# Single package
+colcon build --packages-select robot_pkg
+
+# Force clean rebuild of a package
+rm -rf build/robot_pkg install/robot_pkg
+colcon build --packages-select robot_pkg
+```
+
+Convenience scripts in `bash_files/`:
+- `compile_computer.sh` — builds `robot_msgs`, `telemetry_ui_pkg`, `control_pkg`
+- `compile_jetson.sh` — clean-builds `robot_msgs`, `robot_pkg`, `telemetry_pkg`
+- `execute_computer.sh` — launches `control_pkg joystick.launch.py` (ground station)
+- `execute_robot.sh` — launches `robot_pkg robot.launch.py` (robot side)
+
+## Running Nodes
+
+```bash
+# Ground station (operator side)
+ros2 launch control_pkg joystick.launch.py     # joy_node + joystick_node
+ros2 run telemetry_ui_pkg telemetry_ui_node    # SDL2 dashboard
+
+# Robot side
+ros2 launch robot_pkg robot.launch.py          # arm_node + body_node + telemetry_node
+
+# Individual nodes
+ros2 run robot_pkg body_node
+ros2 run robot_pkg arm_node
+ros2 launch thermal_pkg thermal_camera.launch.py serial_port:=/dev/ttyUSB0
+ros2 launch magnetometer_pkg magnetometer.launch.py
+
+# FastDDS unicast (required over WiFi — run before launching anything)
+source fastdds/setup.sh    # edit fastdds/fastdds_wifi.xml first with ROBOT_IP / STATION_IP
+```
+
+---
+
 ## Topic / QoS Reference
 
 ### Control pipeline
@@ -30,32 +80,33 @@ is pure Python (`ament_python`).
 joy_node (ros-humble-joy)
   └─ /joy  (sensor_msgs/Joy)
        └─ joystick_node (control_pkg)
-            ├─ /joystick/left_y   Float32  BEST_EFFORT KeepLast(1)
-            ├─ /joystick/left_x   Float32  BEST_EFFORT KeepLast(1)
-            ├─ /joystick/right_y  Float32  BEST_EFFORT KeepLast(1)
-            └─ /joystick/right_x  Float32  BEST_EFFORT KeepLast(1)
+            ├─ /control/input   robot_msgs/ControlInput  BEST_EFFORT KeepLast(1)
+            └─ /robot/mode      std_msgs/UInt8           BEST_EFFORT KeepLast(1)
+                 └─ body_node / arm_node (robot_pkg)
 ```
+
+Mode toggle: Xbox **B button** (buttons[1]) — rising-edge, toggles between 0=MOVEMENT and 1=ARM.
 
 Joystick axis mapping (sensor_msgs/Joy.axes[]):
 ```
-axes[0] → left_x   (rotation)
-axes[1] → left_y   (forward/back)
-axes[3] → right_x  (rear flipper)
-axes[4] → right_y  (front flipper)
+axes[0] → left_x    (rotation / arm)
+axes[1] → left_y    (forward/back / arm)
+axes[2] → trigger_L (normalized: 0=released, 1=full)
+axes[3] → right_x   (rear flipper / arm roll)
+axes[4] → right_y   (front flipper / arm elbow)
+axes[5] → trigger_R (normalized: 0=released, 1=full)
+axes[6] → dpad_x    (-1=left, +1=right)
+axes[7] → dpad_y    (+1=up, -1=down)
 ```
 
 ### Motor telemetry (robot_msgs/MotorTelemetry, BEST_EFFORT KeepLast(5))
 ```
-/body_left/telemetry
-/body_right/telemetry
-/body_left_flipper/telemetry
-/body_right_flipper/telemetry
-/arm_hip/telemetry
-/arm_shoulder/telemetry
-/arm_elbow/telemetry
-/arm_roll/telemetry
-/arm_pitch/telemetry
-/arm_claw/telemetry
+/body_left/telemetry          /arm_hip/telemetry
+/body_right/telemetry         /arm_shoulder/telemetry
+/body_left_flipper/telemetry  /arm_elbow/telemetry
+/body_right_flipper/telemetry /arm_roll/telemetry
+                               /arm_pitch/telemetry
+                               /arm_claw/telemetry
 ```
 
 ### Config update pipeline (RELIABLE KeepLast(10))
@@ -68,15 +119,40 @@ axes[4] → right_y  (front flipper)
 
 ### Other topics
 ```
-/thermal_data          Float32MultiArray  768 floats (32×24)  thermal_pkg → camera_pkg
-/telemetry/aggregated  String (JSON)                           telemetry_pkg
-/telemetryJSON/arm_max_rpm  Float32                            telemetry_pkg
-magnetometer_data      String (JSON)                           magnetometer_pkg internal
+/thermal_data              Float32MultiArray  768 floats (32×24)   thermal_pkg → camera_pkg
+/telemetry/aggregated      String (JSON, 50 Hz)                     telemetry_pkg
+/telemetryJSON/arm_max_rpm Float32                                   telemetry_pkg
 ```
 
 ---
 
 ## Message Definitions
+
+**robot_msgs/ControlInput** — single message replacing the 4 separate Float32 topics:
+```
+uint8   mode            # 0=MOVEMENT, 1=ARM
+float32 left_x
+float32 left_y
+float32 right_x
+float32 right_y
+float32 trigger_left    # normalized 0–1
+float32 trigger_right
+float32 dpad_x          # -1=left, +1=right
+float32 dpad_y          # +1=up, -1=down
+bool    bumper_left     # L1
+bool    bumper_right    # R1
+```
+
+**robot_msgs/DPadConfig** — sent by telemetry_ui to adjust motor limits via D-pad:
+```
+float32 rpm_limit
+float32 duty_cycle_limit
+```
+
+**robot_msgs/JoystickAxes** — (defined but unused; ControlInput is preferred):
+```
+float32 left_x / left_y / right_x / right_y
+```
 
 **robot_msgs/MotorTelemetry:**
 ```
@@ -115,6 +191,10 @@ bool    inverted
 Tank drive: `left = Y + X`, `right = Y - X`
 Front flipper ← right_y, Rear flipper ← right_x
 
+**Motor groups** (used in telemetry_ui for bulk config):
+- `Flippers`: config_index {0, 3}
+- `Tracks`: config_index {1, 2}
+
 ### Arm (arm_node, ttyACM4)
 | config_index | Motor name | VESC ID | mode | rpm_limit |
 |---|---|---|---|---|
@@ -125,7 +205,7 @@ Front flipper ← right_y, Rear flipper ← right_x
 | 8 | Pitch | 8 | duty_cycle | 1000 |
 | 9 | Grip | 9 | duty_cycle | 1000 |
 
-All arm duty_cycle_limit = 0.1
+All arm `duty_cycle_limit = 0.1`
 
 ---
 
@@ -134,7 +214,14 @@ All arm duty_cycle_limit = 0.1
 Library: `LibSerial` (libserial-dev)
 Baudrate: 115200, timeout: 1000 ms
 Frame: `[0x02][length][payload][CRC_H][CRC_L][0x03]`
-Key packet IDs: `0x04` = request values (telemetry), `0x08` = set RPM
+
+Key packet IDs:
+- `0x04` = COMM_GET_VALUES (request telemetry)
+- `0x05` = COMM_SET_DUTY (duty cycle × 100000 as big-endian int32)
+- `0x08` = COMM_SET_RPM (big-endian int32)
+
+Standalone VESC test tool (no ROS required): `src/robot_pkg/src/pytest/pytest.py`
+Edit `SERIAL_PORTS` dict at the top to target specific ports.
 
 ---
 
@@ -153,49 +240,27 @@ Each motor drive loop runs in its own callback group → parallel execution in
 `MultiThreadedExecutor`. Joystick values shared between threads via `std::atomic<float>`.
 
 ```cpp
-// Pattern used throughout body.cpp and arm.cpp
 std::atomic<float> left_y_{0.0f};
 rclcpp::CallbackGroup::SharedPtr cg_left_ =
     create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
 ```
 
-Telemetry timer: 50 ms period (20 Hz)
-Drive timers: 10 ms period (100 Hz) per motor
-
----
-
-## Build
-
-```bash
-# Full build
-source /opt/ros/humble/setup.bash
-colcon build --symlink-install
-source install/setup.bash
-
-# Jetson (skip desktop-only packages)
-colcon build --symlink-install \
-  --packages-ignore camera_pkg detections_pkg
-
-# Single package
-colcon build --packages-select robot_pkg
-```
+Telemetry timer: 50 ms (20 Hz). Drive timers: 10 ms (100 Hz) per motor.
 
 ---
 
 ## Docker
 
 Image base: `osrf/ros:humble-desktop-full`, platform `linux/arm64`
-(works on both Apple Silicon Mac and Jetson Orin — same arch)
 
 ```bash
-docker compose build                  # build image
-docker compose up <service>           # run a node
+docker compose build
+docker compose up <service>
 
-# On actual robot hardware (Linux/Jetson)
+# On actual robot hardware
 docker compose -f docker-compose.yml -f docker-compose.linux.yml up <service>
 
-# After changing C++ source (faster than full rebuild)
-docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm dev
+# Incremental C++ rebuild inside container
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm dev \
   bash -c "colcon build --packages-select robot_pkg"
 ```
@@ -229,7 +294,18 @@ source fastdds/setup.sh   # sets FASTRTPS_DEFAULT_PROFILES_FILE
 ```
 
 Edit `fastdds/fastdds_wifi.xml` to set ROBOT_IP and STATION_IP before sourcing.
-Discovery port: 7412. Lease duration: 10 s. Initial announcements: 10 × 200 ms.
+Discovery port: 7412. Lease duration: 10 s.
+
+See `LATENCY_IMPROVEMENTS.md` for WiFi power-save, CycloneDDS, and UDP buffer tuning.
+
+---
+
+## Camera Config
+
+IPs: `192.168.0.200–206` (7 cameras). Cameras 5–7 require auth (`admin:admin`).
+Config: `src/camera_pkg/config/settings.json`
+Hazmat models: `src/detections_pkg/config/models/hazmat_best.onnx` (YOLOv8),
+`hazmat_resnet18.onnx` (ResNet-18 classifier)
 
 ---
 
@@ -248,20 +324,3 @@ Discovery port: 7412. Lease duration: 10 s. Initial announcements: 10 × 200 ms.
 | Audio | libasound2-dev |
 | Python serial | python3-serial |
 | Python GUI | python3-matplotlib, python3-tk |
-
----
-
-## Camera Config
-
-IPs: `192.168.0.200–206` (7 cameras). Cameras 5–7 require auth (`admin:admin`).
-Config: `src/camera_pkg/config/settings.json`
-Hazmat models: `src/detections_pkg/config/models/hazmat_best.onnx` (YOLOv8),
-`hazmat_resnet18.onnx` (ResNet-18 classifier)
-
----
-
-## Telemetry JSON Format (`/telemetry/aggregated`)
-
-Published by `telemetry_pkg` at 50 Hz. Contains live data from all 10 motors.
-Config relay: `telemetry_pkg` bridges `/ground_station/motor_config` →
-`/robot_config/update` with RELIABLE QoS.

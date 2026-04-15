@@ -76,3 +76,7 @@ Dockerfile
 docker-compose*.yml
 docker/
 
+# Ignore git-related files inside imported repos
+src/**/.gitignore
+src/**/.gitmodules
+src/**/.github/

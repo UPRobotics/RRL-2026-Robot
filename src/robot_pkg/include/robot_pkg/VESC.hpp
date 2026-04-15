@@ -47,7 +47,9 @@ class VESC{
         static std::mutex scan_mutex_;
         
         void setupPort();
-        
+        // Try to connect to one specific port and verify motor ID. No scan_mutex_ acquired.
+        bool tryConnectToPort(const std::string& port);
+
         // Métodos estáticos
         static uint16_t crc16(const std::vector<uint8_t>& data, uint16_t poly = 0x1021, uint16_t init_val = 0);
         static std::vector<uint8_t> find_packet(const std::vector<uint8_t>& response);
@@ -58,9 +60,11 @@ class VESC{
 
         bool connect();
         void disconnect();
-        bool autoConnect();
+        // hint: try this port first (no global scan lock); falls back to full scan if empty or fails
+        bool autoConnect(const std::string& hint = "");
         bool isConnected();
         void setId(uint8_t id);
+        std::string getPortName() const { return port_name; }
         
         // Write data to the VESC
         void send_vesc_packet(const std::vector<uint8_t> &payload);
