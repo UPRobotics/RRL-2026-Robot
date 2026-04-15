@@ -6,6 +6,8 @@
 #include "detections_pkg/motion_detector.h"
 #include "detections_pkg/hazmat_detector.h"
 #include "detections_pkg/magnetometer_panel.h"
+#include "detections_pkg/thermal_panel.h"
+#include <std_msgs/msg/string.hpp>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
 #include <rclcpp/rclcpp.hpp>
@@ -13,6 +15,8 @@
 #include <opencv2/core.hpp>
 #include <vector>
 #include <set>
+#include <deque>
+#include <mutex>
 #include <thread>
 #include <atomic>
 
@@ -47,8 +51,17 @@ private:
     void saveHazmatCrop(const cv::Mat& frame, const HazmatDetection& hz);
     void renderHazmatCrop(SDL_Renderer* r, SDL_Rect videoArea);
     void renderFooter(SDL_Renderer* r, SDL_Rect area);
+    void renderPanelToggle(SDL_Renderer* r, SDL_Rect area);
 
-    // Telemetry
+    // Speech
+    void onSpeechFinal(const std_msgs::msg::String::SharedPtr msg);
+    void onSpeechPartial(const std_msgs::msg::String::SharedPtr msg);
+
+    // Word-wrap text to fit within maxWidth pixels; returns vector of lines
+    std::vector<std::string> wrapText(
+        const std::string& text, int maxWidth, TTF_Font* font) const;
+
+    // Telemetry (kept but display replaced by speech footer)
     void startTelemetry();
     void stopTelemetry();
     void telemetryLoop();
@@ -92,6 +105,7 @@ private:
     // Subsystems
     std::unique_ptr<DetectionStream>   m_stream;
     std::unique_ptr<MagnetometerPanel> m_magPanel;
+    std::unique_ptr<ThermalPanel>      m_thermalPanel;
     QRDetector      m_qrDetector;
     MotionDetector  m_motionDetector;
     HazmatDetector  m_hazmatDetector;
@@ -106,6 +120,33 @@ private:
     int m_frameH = 0;
 
     bool m_quit = false;
+
+    // Right-panel toggle (magnetometer vs thermal)
+    bool      m_showThermal    = false;
+    SDL_Rect  m_panelToggleBtn = {};
+
+    // Speech footer
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_speechFinalSub;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr m_speechPartialSub;
+    std::deque<std::string> m_speechFinals;   // max 50 final utterances
+    std::string             m_speechPartial;  // latest in-progress text
+    std::mutex              m_speechMutex;
+
+    // Runtime sizes (user-draggable)
+    int m_footerH = 80;   // replaces static FOOTER_H
+
+    // Drag state
+    bool m_draggingPanel  = false;
+    bool m_draggingFooter = false;
+    int  m_dragStartX     = 0;
+    int  m_dragStartY     = 0;
+    int  m_dragStartPanelW  = 0;
+    int  m_dragStartFooterH = 0;
+
+    // System cursors
+    SDL_Cursor* m_cursorDefault = nullptr;
+    SDL_Cursor* m_cursorSizeWE  = nullptr;
+    SDL_Cursor* m_cursorSizeNS  = nullptr;
 
     // QR crop display
     SDL_Texture* m_qrCropTex = nullptr;

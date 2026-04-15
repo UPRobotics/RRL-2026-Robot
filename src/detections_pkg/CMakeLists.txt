@@ -56,6 +56,7 @@ set(SOURCES
   src/motion_detector.cpp
   src/magnetometer_panel.cpp
   src/hazmat_detector.cpp
+  src/thermal_panel.cpp
 )
 
 add_executable(detections_pkg_node ${SOURCES})

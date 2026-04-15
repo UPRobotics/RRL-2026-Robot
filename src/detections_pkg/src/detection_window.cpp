@@ -40,7 +40,8 @@ namespace WinColors {
     const SDL_Color STAT_CRIT   = {231, 76, 60, 255};
 }
 
-static constexpr int FOOTER_H = 50;
+static constexpr int PANEL_TOGGLE_H = 28;
+static constexpr int DRAG_HIT_W     = 6;   // px either side of divider that counts as a drag hit
 
 DetectionWindow::DetectionWindow(const DetectionConfig& config,
                                  rclcpp::Node::SharedPtr node)
@@ -97,8 +98,9 @@ bool DetectionWindow::initialize() {
     }
 
     // Create subsystems
-    m_stream = std::make_unique<DetectionStream>(m_config, m_renderer);
-    m_magPanel = std::make_unique<MagnetometerPanel>(m_node);
+    m_stream       = std::make_unique<DetectionStream>(m_config, m_renderer);
+    m_magPanel     = std::make_unique<MagnetometerPanel>(m_node);
+    m_thermalPanel = std::make_unique<ThermalPanel>(m_node);
 
     // Start the camera stream
     if (!m_stream->start()) {
@@ -122,6 +124,25 @@ bool DetectionWindow::initialize() {
         m_config.enable_hazmat = false;
     }
 
+    // Speech subscriptions
+    m_speechFinalSub = m_node->create_subscription<std_msgs::msg::String>(
+        "/speech_text", 10,
+        [this](const std_msgs::msg::String::SharedPtr msg) { onSpeechFinal(msg); });
+    m_speechPartialSub = m_node->create_subscription<std_msgs::msg::String>(
+        "/speech_partial", 10,
+        [this](const std_msgs::msg::String::SharedPtr msg) { onSpeechPartial(msg); });
+
+    // Drag-resize cursors
+    m_cursorDefault = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_ARROW);
+    m_cursorSizeWE  = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZEWE);
+    m_cursorSizeNS  = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_SIZENS);
+
+    // Dynamic footer height: 3 lines of font14 + padding
+    if (m_font14) {
+        int lineH = TTF_FontHeight(m_font14) + 4;
+        m_footerH = lineH * 3 + 16;
+    }
+
     spdlog::info("DetectionWindow initialized {}x{}",
                  m_config.window_width, m_config.window_height);
 
@@ -141,6 +162,11 @@ void DetectionWindow::shutdown() {
     if (m_stream) m_stream->stop();
     m_stream.reset();
     m_magPanel.reset();
+    m_thermalPanel.reset();
+
+    if (m_cursorDefault) { SDL_FreeCursor(m_cursorDefault); m_cursorDefault = nullptr; }
+    if (m_cursorSizeWE)  { SDL_FreeCursor(m_cursorSizeWE);  m_cursorSizeWE  = nullptr; }
+    if (m_cursorSizeNS)  { SDL_FreeCursor(m_cursorSizeNS);  m_cursorSizeNS  = nullptr; }
 
     if (m_qrCropTex) { SDL_DestroyTexture(m_qrCropTex); m_qrCropTex = nullptr; }
     if (m_hazmatCropTex) { SDL_DestroyTexture(m_hazmatCropTex); m_hazmatCropTex = nullptr; }
@@ -233,12 +259,18 @@ bool DetectionWindow::spinOnce() {
 }
 
 void DetectionWindow::processEvents() {
+    int winW, winH;
+    SDL_GetWindowSize(m_window, &winW, &winH);
+    int panelDivX  = winW - m_config.mag_panel_width;
+    int footerDivY = winH - m_footerH;
+
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
             case SDL_QUIT:
                 m_quit = true;
                 break;
+
             case SDL_KEYDOWN:
                 if (e.key.keysym.sym == SDLK_q || e.key.keysym.sym == SDLK_ESCAPE)
                     m_quit = true;
@@ -249,10 +281,52 @@ void DetectionWindow::processEvents() {
                     saveConfig();
                 }
                 break;
+
             case SDL_MOUSEBUTTONDOWN:
-                if (e.button.button == SDL_BUTTON_LEFT)
-                    handleMouseClick(e.button.x, e.button.y);
+                if (e.button.button == SDL_BUTTON_LEFT) {
+                    int mx = e.button.x, my = e.button.y;
+                    if (std::abs(mx - panelDivX) <= DRAG_HIT_W) {
+                        m_draggingPanel    = true;
+                        m_dragStartX       = mx;
+                        m_dragStartPanelW  = m_config.mag_panel_width;
+                    } else if (std::abs(my - footerDivY) <= DRAG_HIT_W) {
+                        m_draggingFooter    = true;
+                        m_dragStartY        = my;
+                        m_dragStartFooterH  = m_footerH;
+                    } else {
+                        handleMouseClick(mx, my);
+                    }
+                }
                 break;
+
+            case SDL_MOUSEBUTTONUP:
+                if (e.button.button == SDL_BUTTON_LEFT) {
+                    if (m_draggingPanel || m_draggingFooter)
+                        saveConfig();
+                    m_draggingPanel = m_draggingFooter = false;
+                }
+                break;
+
+            case SDL_MOUSEMOTION: {
+                int mx = e.motion.x, my = e.motion.y;
+                if (m_draggingPanel) {
+                    int newW = m_dragStartPanelW - (mx - m_dragStartX);
+                    m_config.mag_panel_width = std::clamp(newW, 150, winW / 2);
+                } else if (m_draggingFooter) {
+                    int newH = m_dragStartFooterH - (my - m_dragStartY);
+                    int minH = m_font14 ? TTF_FontHeight(m_font14) * 2 + 8 : 40;
+                    int maxH = m_font14 ? TTF_FontHeight(m_font14) * 8 + 16 : 160;
+                    m_footerH = std::clamp(newH, minH, maxH);
+                } else if (m_cursorSizeWE && m_cursorSizeNS && m_cursorDefault) {
+                    if (std::abs(mx - panelDivX) <= DRAG_HIT_W)
+                        SDL_SetCursor(m_cursorSizeWE);
+                    else if (std::abs(my - footerDivY) <= DRAG_HIT_W)
+                        SDL_SetCursor(m_cursorSizeNS);
+                    else
+                        SDL_SetCursor(m_cursorDefault);
+                }
+                break;
+            }
         }
     }
 }
@@ -282,13 +356,15 @@ void DetectionWindow::render() {
                            WinColors::BG.b, WinColors::BG.a);
     SDL_RenderClear(m_renderer);
 
-    int panelW = m_config.mag_panel_width;
+    int panelW     = m_config.mag_panel_width;
     int videoAreaW = winW - panelW;
-    int contentH = winH - FOOTER_H;
+    int contentH   = winH - m_footerH;
 
-    // Split the right panel: top half magnetometer, bottom half settings
-    int magH = contentH / 2;
-    int settingsH = contentH - magH;
+    // Right panel: toggle btn + sensor area (top half) + settings (bottom half)
+    int sensorH   = contentH / 2 - PANEL_TOGGLE_H;
+    if (sensorH < 0) sensorH = 0;
+    int settingsY = PANEL_TOGGLE_H + sensorH;
+    int settingsH = contentH - settingsY;
 
     // ---- Toggle bar (top of video area) ----
     static constexpr int TOGGLE_BAR_H = 32;
@@ -391,19 +467,74 @@ void DetectionWindow::render() {
                  msg, msgColor, m_font16);
     }
 
-    // ---- Magnetometer panel (top-right) ----
-    SDL_Rect magRect = {videoAreaW, 0, panelW, magH};
-    m_magPanel->render(m_renderer, magRect);
+    // ---- Panel toggle button (top of right panel) ----
+    SDL_Rect toggleBtnRect = {videoAreaW, 0, panelW, PANEL_TOGGLE_H};
+    renderPanelToggle(m_renderer, toggleBtnRect);
+
+    // ---- Sensor panel (magnetometer or thermal) ----
+    SDL_Rect sensorRect = {videoAreaW, PANEL_TOGGLE_H, panelW, sensorH};
+    if (m_showThermal)
+        m_thermalPanel->render(m_renderer, sensorRect, m_font12, m_font14);
+    else
+        m_magPanel->render(m_renderer, sensorRect);
 
     // ---- Settings panel (bottom-right) ----
-    SDL_Rect settingsRect = {videoAreaW, magH, panelW, settingsH};
+    SDL_Rect settingsRect = {videoAreaW, settingsY, panelW, settingsH};
     renderSettingsPanel(m_renderer, settingsRect);
 
+    // ---- Vertical drag handle (panel divider) ----
+    SDL_SetRenderDrawColor(m_renderer, WinColors::PANEL_BORDER.r, WinColors::PANEL_BORDER.g,
+                           WinColors::PANEL_BORDER.b, WinColors::PANEL_BORDER.a);
+    SDL_RenderDrawLine(m_renderer, videoAreaW,     0, videoAreaW,     contentH);
+    SDL_RenderDrawLine(m_renderer, videoAreaW + 1, 0, videoAreaW + 1, contentH);
+
     // ---- Footer (bottom, full width) ----
-    SDL_Rect footerRect = {0, contentH, winW, FOOTER_H};
+    SDL_Rect footerRect = {0, contentH, winW, m_footerH};
     renderFooter(m_renderer, footerRect);
 
     SDL_RenderPresent(m_renderer);
+}
+
+void DetectionWindow::renderPanelToggle(SDL_Renderer* r, SDL_Rect area) {
+    // Background matching toggle bar style
+    SDL_SetRenderDrawColor(r, 40, 40, 45, 255);
+    SDL_RenderFillRect(r, &area);
+
+    // Bottom border
+    SDL_SetRenderDrawColor(r, 60, 60, 65, 255);
+    SDL_RenderDrawLine(r, area.x, area.y + area.h - 1,
+                       area.x + area.w, area.y + area.h - 1);
+
+    // Store rect for click detection
+    m_panelToggleBtn = area;
+
+    // Two halves: MAG side | THERMAL side
+    int halfW = area.w / 2;
+    SDL_Rect magSide     = {area.x,         area.y, halfW,          area.h};
+    SDL_Rect thermalSide = {area.x + halfW, area.y, area.w - halfW, area.h};
+
+    static const SDL_Color activeColor   = {70, 130, 180, 255};
+    static const SDL_Color inactiveColor = {55, 55, 60,  255};
+    static const SDL_Color textActive    = {255, 255, 255, 255};
+    static const SDL_Color textInactive  = {140, 140, 145, 255};
+
+    auto drawHalf = [&](SDL_Rect rect, const char* label, bool active) {
+        auto& bg = active ? activeColor : inactiveColor;
+        SDL_SetRenderDrawColor(r, bg.r, bg.g, bg.b, 255);
+        SDL_RenderFillRect(r, &rect);
+        SDL_SetRenderDrawColor(r, 50, 50, 55, 255);
+        SDL_RenderDrawRect(r, &rect);
+        auto& tc = active ? textActive : textInactive;
+        int tw = 0, th = 0;
+        TTF_Font* f = m_font12 ? m_font12 : m_font14;
+        if (f) TTF_SizeText(f, label, &tw, &th);
+        int tx = rect.x + (rect.w - tw) / 2;
+        int ty = rect.y + (rect.h - th) / 2;
+        drawText(r, tx, ty, label, tc, f);
+    };
+
+    drawHalf(magSide,     "MAG",     !m_showThermal);
+    drawHalf(thermalSide, "THERMAL",  m_showThermal);
 }
 
 void DetectionWindow::renderToggleBar(SDL_Renderer* r, SDL_Rect area) {
@@ -681,6 +812,12 @@ void DetectionWindow::renderSettingsPanel(SDL_Renderer* r, SDL_Rect area) {
 
 void DetectionWindow::handleMouseClick(int mx, int my) {
     bool changed = false;
+
+    // Panel toggle (MAG ↔ THERMAL)
+    if (inRect(mx, my, m_panelToggleBtn)) {
+        m_showThermal = !m_showThermal;
+        return;
+    }
 
     // Toggle bar clicks
     if (inRect(mx, my, m_toggleAll)) {
@@ -1052,14 +1189,8 @@ void DetectionWindow::renderHazmatCrop(SDL_Renderer* r, SDL_Rect videoArea) {
 }
 
 // ----------------------------------------------------------------
-// Footer (system stats bar)
+// Footer (live speech display)
 // ----------------------------------------------------------------
-
-static SDL_Color getStatColor(float pct) {
-    if (pct < 60.0f) return WinColors::STAT_GOOD;
-    if (pct < 80.0f) return WinColors::STAT_WARN;
-    return WinColors::STAT_CRIT;
-}
 
 void DetectionWindow::renderFooter(SDL_Renderer* r, SDL_Rect area) {
     // Background
@@ -1067,70 +1198,110 @@ void DetectionWindow::renderFooter(SDL_Renderer* r, SDL_Rect area) {
                            WinColors::STATSBAR_BG.b, WinColors::STATSBAR_BG.a);
     SDL_RenderFillRect(r, &area);
 
-    // Top border
+    // Top border (2px — also serves as drag handle indicator)
     SDL_SetRenderDrawColor(r, WinColors::PANEL_BORDER.r, WinColors::PANEL_BORDER.g,
                            WinColors::PANEL_BORDER.b, WinColors::PANEL_BORDER.a);
-    SDL_RenderDrawLine(r, area.x, area.y, area.x + area.w, area.y);
+    SDL_RenderDrawLine(r, area.x, area.y,     area.x + area.w, area.y);
+    SDL_RenderDrawLine(r, area.x, area.y + 1, area.x + area.w, area.y + 1);
 
-    float cpu = m_cpuUsage.load();
-    float ram = m_ramUsage.load();
-    float gpu = m_gpuUsage.load();
-    float vramUsed = m_vramUsedMb.load();
-    float vramTotal = m_vramTotalMb.load();
-    float lat = m_latency.load();
+    TTF_Font* textFont = m_font14 ? m_font14 : m_font12;
+    if (!textFont) return;
 
-    int sections = 6;
-    int secW = area.w / sections;
-    int px = 12;
-    int labelY = area.y + 6;
-    int valueY = area.y + 24;
+    int lineH   = TTF_FontHeight(textFont) + 4;
+    int pad     = 8;
+    int labelW  = 72;   // width reserved for "SPEECH:" label on the left
+    int textX   = area.x + labelW;
+    int maxTextW = area.w - labelW - pad;
 
-    char buf[32];
-
-    // CPU
-    drawText(r, area.x + px, labelY, "CPU Usage", WinColors::STAT_LABEL, m_font12);
-    std::snprintf(buf, sizeof(buf), "%.1f%%", cpu);
-    drawText(r, area.x + px, valueY, buf, getStatColor(cpu), m_font16);
-
-    // RAM
-    int col2 = area.x + secW + px;
-    drawText(r, col2, labelY, "RAM Usage", WinColors::STAT_LABEL, m_font12);
-    std::snprintf(buf, sizeof(buf), "%.1f%%", ram);
-    drawText(r, col2, valueY, buf, getStatColor(ram), m_font16);
-
-    // GPU Core
-    int col3 = area.x + secW * 2 + px;
-    drawText(r, col3, labelY, "GPU Core", WinColors::STAT_LABEL, m_font12);
-    std::snprintf(buf, sizeof(buf), "%.0f%%", gpu);
-    drawText(r, col3, valueY, buf, getStatColor(gpu), m_font16);
-
-    // VRAM
-    int col4 = area.x + secW * 3 + px;
-    drawText(r, col4, labelY, "VRAM", WinColors::STAT_LABEL, m_font12);
-    if (vramTotal > 0.0f) {
-        float vramPct = (vramUsed / vramTotal) * 100.0f;
-        std::snprintf(buf, sizeof(buf), "%.0f/%.0f MB", vramUsed, vramTotal);
-        drawText(r, col4, valueY, buf, getStatColor(vramPct), m_font16);
-    } else {
-        drawText(r, col4, valueY, "N/A", WinColors::STAT_LABEL, m_font16);
+    // Collect wrapped lines (under mutex)
+    std::vector<std::string> finalLines;
+    std::vector<std::string> partialLines;
+    {
+        std::lock_guard<std::mutex> lk(m_speechMutex);
+        for (const auto& utt : m_speechFinals)
+            for (auto& l : wrapText(utt, maxTextW, textFont))
+                finalLines.push_back(l);
+        if (!m_speechPartial.empty())
+            partialLines = wrapText(m_speechPartial, maxTextW, textFont);
     }
 
-    // CUDA Utilization
-    // (reusing gpu atomic — nvidia-smi utilization.gpu is the CUDA engine %)
-    // We already have GPU core %. For a separate "CUDA" label, we can show
-    // the memory controller utilization which indicates CUDA memory bandwidth.
-    // However, the simplest useful metric is the compute utilization we already have.
-    // Let's show VRAM percentage here instead as a bar-style.
+    // How many text rows fit in the footer
+    int slots = std::max(1, (area.h - 2 * pad) / lineH);
 
-    // Camera Latency
-    int col6 = area.x + secW * 4 + px;
-    drawText(r, col6, labelY, "Camera Latency", WinColors::STAT_LABEL, m_font12);
-    std::snprintf(buf, sizeof(buf), "%.1f ms", lat);
-    SDL_Color latColor;
-    if (lat < 50.0f) latColor = WinColors::STAT_GOOD;
-    else if (lat < 100.0f) latColor = WinColors::STAT_WARN;
-    else latColor = WinColors::STAT_CRIT;
-    drawText(r, col6, valueY, buf, latColor, m_font16);
+    // Partial lines occupy bottom slot(s); finals fill the rest
+    int partialSlots = std::min((int)partialLines.size(), slots);
+    int finalSlots   = slots - partialSlots;
+
+    int finalStart = std::max(0, (int)finalLines.size() - finalSlots);
+    std::vector<std::string> display;
+    for (int i = finalStart; i < (int)finalLines.size(); ++i)
+        display.push_back(finalLines[i]);
+    for (auto& l : partialLines)
+        display.push_back(l);
+
+    // "SPEECH:" label
+    drawText(r, area.x + pad, area.y + pad, "SPEECH:", WinColors::SUBTEXT, m_font12);
+
+    if (display.empty()) {
+        drawText(r, textX, area.y + pad, "Waiting for speech...", WinColors::SUBTEXT, textFont);
+        return;
+    }
+
+    int numFinal = (int)display.size() - (int)partialLines.size();
+    int y = area.y + pad;
+    for (int i = 0; i < (int)display.size() && i < slots; ++i) {
+        bool isPartial = (i >= numFinal);
+        SDL_Color col  = isPartial ? WinColors::TEXT : WinColors::SUBTEXT;
+        drawText(r, textX, y, display[i], col, textFont);
+        y += lineH;
+    }
+}
+
+// ----------------------------------------------------------------
+// Speech callbacks
+// ----------------------------------------------------------------
+
+void DetectionWindow::onSpeechFinal(const std_msgs::msg::String::SharedPtr msg) {
+    if (msg->data.empty()) return;
+    std::lock_guard<std::mutex> lk(m_speechMutex);
+    m_speechFinals.push_back(msg->data);
+    if (m_speechFinals.size() > 50)
+        m_speechFinals.pop_front();
+    m_speechPartial.clear();
+}
+
+void DetectionWindow::onSpeechPartial(const std_msgs::msg::String::SharedPtr msg) {
+    std::lock_guard<std::mutex> lk(m_speechMutex);
+    m_speechPartial = msg->data;
+}
+
+// ----------------------------------------------------------------
+// Text word-wrap helper
+// ----------------------------------------------------------------
+
+std::vector<std::string> DetectionWindow::wrapText(
+    const std::string& text, int maxWidth, TTF_Font* font) const
+{
+    std::vector<std::string> lines;
+    if (!font || text.empty() || maxWidth <= 0) return lines;
+
+    std::istringstream ss(text);
+    std::string word;
+    std::string current;
+
+    while (ss >> word) {
+        std::string candidate = current.empty() ? word : current + " " + word;
+        int tw = 0, th = 0;
+        TTF_SizeUTF8(font, candidate.c_str(), &tw, &th);
+        if (tw <= maxWidth) {
+            current = candidate;
+        } else {
+            if (!current.empty()) lines.push_back(current);
+            current = word;
+        }
+    }
+    if (!current.empty()) lines.push_back(current);
+    return lines;
 }
 
 // ----------------------------------------------------------------

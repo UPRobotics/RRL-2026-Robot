@@ -25,9 +25,10 @@ private:
     void prefillSilence();
     void audioCallback(const std_msgs::msg::UInt8MultiArray::SharedPtr msg);
 
-    // ROS2 subscriber & publisher
+    // ROS2 subscriber & publishers
     rclcpp::Subscription<std_msgs::msg::UInt8MultiArray>::SharedPtr subscription_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr text_publisher_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr partial_publisher_;
 
     // ALSA handle
     snd_pcm_t* playback_handle_ = nullptr;

@@ -35,7 +35,8 @@ MicReceiver::MicReceiver()
         "audio_raw", 10,
         std::bind(&MicReceiver::audioCallback, this, std::placeholders::_1));
 
-    text_publisher_ = this->create_publisher<std_msgs::msg::String>("speech_text", 10);
+    text_publisher_    = this->create_publisher<std_msgs::msg::String>("speech_text",    10);
+    partial_publisher_ = this->create_publisher<std_msgs::msg::String>("speech_partial", 10);
 
     // Create transcript window first
     window_ = std::make_unique<TranscriptWindow>(600, 300, 18);
@@ -87,6 +88,9 @@ void MicReceiver::switchLanguage(const std::string& lang)
         } else {
             std::string converted = NumberConverter::convert(text, current_lang_);
             if (window_) window_->setPartial(converted);
+            auto pmsg = std_msgs::msg::String();
+            pmsg.data = converted;
+            partial_publisher_->publish(pmsg);
         }
     });
 
