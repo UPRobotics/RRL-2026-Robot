@@ -141,12 +141,16 @@ Placeholder package reserved for future high-level control logic.
 ```
 roboticaWS/
 ├── src/
-│   ├── camera_pkg/           # Multi-camera RTSP viewer (desktop)
+├   |── camera_pkg/           # Multi-camera RTSP viewer (desktop)
 │   ├── control_pkg/          # Control logic (placeholder)
 │   ├── detections_pkg/       # QR, motion & hazmat detection (desktop)
+│   ├── fastlio_pkg/          # LiDAR-Inertial SLAM
+│   ├── livox_ros_driver2/    # Official Livox LiDAR driver
 │   ├── magnetometer_pkg/     # Magnetometer reader & visualizer
 │   ├── mic_pkg/              # Microphone capture & speech recognition
-│   ├── robot_pkg/            # VESC motor control (body, arm, joystick)
+│   ├── octomap_mapping/      # OctoMap mapping
+│   ├── octomap_msgs/         # OctoMap messages
+│   ├── robot_pkg/            # VESC motor control
 │   └── thermal_pkg/          # MLX90640 thermal camera
 ├── models/                   # Vosk speech recognition models
 ├── detections/               # Saved detection outputs (QR, hazmat)

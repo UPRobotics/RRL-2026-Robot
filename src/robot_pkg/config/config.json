@@ -9,7 +9,8 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.15000000596046448,
-      "id": 5,
+      "enabled": true,
+      "id": 8,
       "inverted": true,
       "name": "Flipper Trasero",
       "port": "/dev/ttyACM2",
@@ -18,6 +19,7 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.30000001192092896,
+      "enabled": true,
       "id": 3,
       "inverted": false,
       "name": "Track Izquierdo",
@@ -27,6 +29,7 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.30000001192092896,
+      "enabled": true,
       "id": 6,
       "inverted": true,
       "name": "Track Derecho",
@@ -36,6 +39,7 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.15000000596046448,
+      "enabled": true,
       "id": 1,
       "inverted": true,
       "name": "Flipper Delantero",
@@ -45,7 +49,8 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.10000000149011612,
-      "id": 8,
+      "enabled": false,
+      "id": 99,
       "inverted": false,
       "name": "Cadera",
       "port": "/dev/ttyACM7",
@@ -54,7 +59,8 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.10000000149011612,
-      "id": 4,
+      "enabled": true,
+      "id": 9,
       "inverted": false,
       "name": "Hombro",
       "port": "/dev/ttyACM2",
@@ -63,7 +69,8 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.10000000149011612,
-      "id": 99,
+      "enabled": true,
+      "id": 4,
       "inverted": false,
       "name": "Codo",
       "port": "/dev/ttyACM3",
@@ -72,6 +79,7 @@
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.10000000149011612,
+      "enabled": true,
       "id": 7,
       "inverted": false,
       "name": "Roll",
@@ -81,6 +89,7 @@
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.15000000596046448,
+      "enabled": true,
       "id": 2,
       "inverted": false,
       "name": "Pitch",
@@ -90,7 +99,8 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.10000000149011612,
-      "id": 98,
+      "enabled": false,
+      "id": 97,
       "inverted": false,
       "name": "Grip",
       "port": "",

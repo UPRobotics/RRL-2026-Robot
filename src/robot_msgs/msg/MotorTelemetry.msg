@@ -8,6 +8,7 @@ float32 position        # Rotor position (degrees)
 uint8   fault_code      # VESC fault code (0 = no fault)
 uint8   control_mode    # 0 = RPM mode, 1 = duty cycle mode
 bool    inverted        # Motor orientation (true = electrically inverted)
+bool    enabled         # false = motor slot disabled, no connection attempted
 float32 current_motor      # Motor phase current (Amps)
 float32 rpm_limit          # Configured RPM limit from config.json
 float32 duty_cycle_limit   # Configured duty cycle limit from config.json
