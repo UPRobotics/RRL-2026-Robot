@@ -254,10 +254,27 @@ sudo apt install -y -qq \
     ros-humble-sensor-msgs \
     ros-humble-geometry-msgs > /dev/null || true
 
-# NOTE: fastlio_pkg requires livox_ros_driver2, which is NOT available via apt.
-# Clone it into src/ before building:
-#   git clone https://github.com/Livox-SDK/livox_ros_driver2 src/livox_ros_driver2
-warn "livox_ros_driver2 must be cloned from source into src/ for fastlio_pkg to build."
+# --- Livox SDK2 (required by livox_ros_driver2 ROS driver) ---
+if [ -f /usr/local/lib/liblivox_lidar_sdk_shared.so ]; then
+    log "Livox SDK2 already installed, skipping."
+else
+    log "Building and installing Livox SDK2..."
+    LIVOX_SDK_TMP="$(mktemp -d)"
+    git clone --depth 1 https://github.com/Livox-SDK/Livox-SDK2.git "${LIVOX_SDK_TMP}" || {
+        err "Failed to clone Livox-SDK2. Check internet connection."
+        rm -rf "${LIVOX_SDK_TMP}"
+        warn "Continuing without Livox SDK2 — livox_ros_driver2 will fail to build."
+    }
+    if [ -d "${LIVOX_SDK_TMP}/CMakeLists.txt" ] || [ -f "${LIVOX_SDK_TMP}/CMakeLists.txt" ]; then
+        mkdir -p "${LIVOX_SDK_TMP}/build"
+        cmake -S "${LIVOX_SDK_TMP}" -B "${LIVOX_SDK_TMP}/build"
+        make -C "${LIVOX_SDK_TMP}/build" -j"$(nproc)"
+        sudo make -C "${LIVOX_SDK_TMP}/build" install
+        sudo ldconfig
+        rm -rf "${LIVOX_SDK_TMP}"
+        log "Livox SDK2 installed successfully."
+    fi
+fi
 
 log "FAST_LIO + Octomap + visualization dependencies installed."
 
@@ -303,7 +320,7 @@ set +u
 source /opt/ros/humble/setup.bash
 set -u
 set +e
-colcon build --symlink-install
+colcon build --symlink-install --allow-overriding octomap_msgs
 BUILD_RC=$?
 set -e
 
