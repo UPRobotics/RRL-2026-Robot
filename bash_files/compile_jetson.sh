@@ -1,12 +1,8 @@
 #!/bin/bash
 cd ..
-source install/setup.bash
 source /opt/ros/humble/setup.bash
 
-rm -rf build
+rm -rf build install log
 
-colcon build --packages-select robot_msgs
-colcon build --packages-select robot_pkg
-colcon build --packages-select telemetry_pkg
-
-
+colcon build --symlink-install --packages-ignore camera_pkg detections_pkg
+source install/setup.bash

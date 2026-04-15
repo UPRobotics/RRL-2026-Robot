@@ -178,10 +178,22 @@ sudo apt install -y -qq \
     ros-humble-foxglove-bridge \
     ros-humble-pcl-ros \
     ros-humble-pcl-conversions \
+    ros-humble-rclcpp-components \
+    ros-humble-nav-msgs \
+    ros-humble-std-srvs \
+    ros-humble-visualization-msgs \
+    ros-humble-tf2 \
     libpcl-dev \
     libeigen3-dev \
+    python3-dev \
+    python3-numpy \
     ros-humble-sensor-msgs \
     ros-humble-geometry-msgs > /dev/null || true
+
+# NOTE: fastlio_pkg requires livox_ros_driver2, which is NOT available via apt.
+# Clone it into src/ before building:
+#   git clone https://github.com/Livox-SDK/livox_ros_driver2 src/livox_ros_driver2
+warn "livox_ros_driver2 must be cloned from source into src/ for fastlio_pkg to build."
 
 log "Livox + Foxglove Bridge dependencies installed for Jetson."
 
