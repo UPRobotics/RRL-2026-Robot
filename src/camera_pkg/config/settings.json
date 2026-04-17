@@ -6,7 +6,7 @@
       "ip": "192.168.0.200",
       "name": "Camera 1",
       "port": 554,
-      "rotation_deg": 180,
+      "rotation_deg": 90,
       "source_type": "rtsp",
       "url_highres": "rtsp://192.168.0.200:554/stream1",
       "url_lowres": "rtsp://192.168.0.200:554/stream2"
@@ -28,7 +28,7 @@
       "ip": "192.168.0.202",
       "name": "Camera 3",
       "port": 554,
-      "rotation_deg": 90,
+      "rotation_deg": 180,
       "source_type": "rtsp",
       "url_highres": "rtsp://192.168.0.202:554/stream1",
       "url_lowres": "rtsp://192.168.0.202:554/stream2"
@@ -61,7 +61,7 @@
       "ip": "192.168.0.205",
       "name": "Camera 6",
       "port": 554,
-      "rotation_deg": 270,
+      "rotation_deg": 0,
       "source_type": "rtsp",
       "url_highres": "rtsp://admin:admin@192.168.0.205:554/profile0",
       "url_lowres": "rtsp://admin:admin@192.168.0.205:554/profile1"
@@ -88,19 +88,19 @@
   },
   "display": {
     "fullscreen_on_startup": false,
-    "last_window_height": 720,
-    "last_window_width": 1280,
-    "last_window_x": -1,
-    "last_window_y": -1,
+    "last_window_height": 1016,
+    "last_window_width": 1850,
+    "last_window_x": 70,
+    "last_window_y": 64,
     "remember_window_position": true,
     "remember_window_size": true
   },
   "grid_2x2": {
     "slots": [
-      6,
-      6,
-      1,
-      5
+      0,
+      5,
+      4,
+      2
     ]
   },
   "keybindings": {
