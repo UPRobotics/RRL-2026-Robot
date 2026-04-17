@@ -313,7 +313,9 @@ private:
         if (!hipMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Hip motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = hip_.port; }
-            if (hipMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); hip_.port = hipMotor.getPortName(); }
+            try {
+                if (hipMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); hip_.port = hipMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Hip autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -330,7 +332,9 @@ private:
         if (!shoulderMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Shoulder motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = shoulder_.port; }
-            if (shoulderMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); shoulder_.port = shoulderMotor.getPortName(); }
+            try {
+                if (shoulderMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); shoulder_.port = shoulderMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Shoulder autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -347,7 +351,9 @@ private:
         if (!elbowMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Elbow motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = elbow_.port; }
-            if (elbowMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); elbow_.port = elbowMotor.getPortName(); }
+            try {
+                if (elbowMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); elbow_.port = elbowMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Elbow autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -364,7 +370,9 @@ private:
         if (!rollMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Roll motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = roll_.port; }
-            if (rollMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); roll_.port = rollMotor.getPortName(); }
+            try {
+                if (rollMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); roll_.port = rollMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Roll autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -381,7 +389,9 @@ private:
         if (!pitchMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Pitch motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = pitch_.port; }
-            if (pitchMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); pitch_.port = pitchMotor.getPortName(); }
+            try {
+                if (pitchMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); pitch_.port = pitchMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Pitch autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -398,7 +408,9 @@ private:
         if (!clawMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Claw motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = claw_.port; }
-            if (clawMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); claw_.port = clawMotor.getPortName(); }
+            try {
+                if (clawMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); claw_.port = clawMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Claw autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -421,6 +433,7 @@ private:
         msg.rpm_limit        = s.rpm_limit;
         msg.duty_cycle_limit = s.duty_cycle_limit;
         msg.enabled          = s.enabled;
+        msg.motor_id         = s.vesc_id;
         if (!s.enabled) {
             // Publish phantom entry so the UI can see this slot is disabled
             pub->publish(msg);
@@ -567,13 +580,11 @@ private:
             std::lock_guard<std::mutex> lk(settings_mutex_);
             wasEnabled          = t->enabled;
             nowEnabled          = msg->enabled;
-            t->vesc_id          = msg->motor_vesc_id;
             t->rpm_limit        = msg->rpm_limit;
             t->duty_cycle_limit = msg->duty_cycle_limit;
             t->control_mode     = msg->control_mode;
             t->inverted         = msg->inverted;
             t->enabled          = msg->enabled;
-            v->setId(msg->motor_vesc_id);
         }
         if (wasEnabled && !nowEnabled) {
             v->disconnect();

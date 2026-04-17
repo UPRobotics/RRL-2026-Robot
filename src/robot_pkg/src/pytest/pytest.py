@@ -10,11 +10,11 @@ from collections import defaultdict
 
 # SERIAL PORTS CONFIGURATION - Edit this section to add/remove motors
 SERIAL_PORTS = {
-    "/dev/ttyACM1": {
+    "/dev/ttyACM4": {
         "direction": 1, 
         "target_rpm": 0,
         "control_mode": "duty_cycle",  # "rpm" o "duty_cycle"
-        "target_duty_cycle": 0.0  # Solo usado si control_mode es "duty_cycle", valor entre -1.0 y 1.0
+        "target_duty_cycle": 0.1  # Solo usado si control_mode es "duty_cycle", valor entre -1.0 y 1.0
     },
     # Ejemplo con duty cycle:
     # "/dev/ttyACM6": {
@@ -39,7 +39,13 @@ class VESCController:
 
     def connect(self):
         try:
-            self.ser = serial.Serial(self.serial_port, self.baudrate, timeout=self.timeout)
+            self.ser = serial.Serial(
+                self.serial_port, self.baudrate,
+                timeout=self.timeout,
+                dsrdtr=False, rtscts=False
+            )
+            time.sleep(0.5)  # let USB-CDC settle after open
+            self.ser.reset_input_buffer()
             print(f"Conectado a {self.serial_port} ({self.motor_id})")
             return True
         except serial.SerialException as e:

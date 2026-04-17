@@ -215,18 +215,18 @@ void MainWindow::onTelemetryReceived(const std_msgs::msg::String::SharedPtr msg)
     }
 }
 
-void MainWindow::publishConfigUpdate(int configIndex)
+void MainWindow::publishConfigUpdate(int configIndex, bool applyEditEnabled)
 {
     if (!m_configPub || configIndex < 0 || configIndex >= NUM_MOTORS) return;
 
-    // Read motor_id and motor_name under the lock — onTelemetryReceived() writes
-    // m_motors from the ROS callback thread, so accessing without a lock is a data race.
-    uint8_t    vesId;
+    uint8_t     vesId;
     std::string vesName;
+    bool        currentEnabled;
     {
         std::lock_guard<std::mutex> lock(m_motorMutex);
-        vesId   = m_motors[configIndex].motor_id;
-        vesName = m_motors[configIndex].motor_name;
+        vesId          = m_motors[configIndex].motor_id;
+        vesName        = m_motors[configIndex].motor_name;
+        currentEnabled = m_motors[configIndex].enabled;
     }
 
     robot_msgs::msg::MotorConfig msg;
@@ -237,7 +237,7 @@ void MainWindow::publishConfigUpdate(int configIndex)
     msg.duty_cycle_limit = m_editDutyCycleLimit;
     msg.control_mode     = m_editControlMode;
     msg.inverted         = m_editInverted;
-    msg.enabled          = m_editEnabled;
+    msg.enabled          = applyEditEnabled ? m_editEnabled : currentEnabled;
 
     m_configPub->publish(msg);
     spdlog::info("Published config for motor [{}] {}: rpm_limit={:.0f} duty={:.3f} mode={} inv={} enabled={}",
@@ -245,10 +245,10 @@ void MainWindow::publishConfigUpdate(int configIndex)
         msg.control_mode, msg.inverted ? "yes" : "no", msg.enabled ? "yes" : "no");
 }
 
-void MainWindow::publishConfigToSelection()
+void MainWindow::publishConfigToSelection(bool applyEditEnabled)
 {
     for (int idx : m_selectedMotors)
-        publishConfigUpdate(idx);
+        publishConfigUpdate(idx, applyEditEnabled);
 }
 
 void MainWindow::publishDPadConfig()
@@ -359,10 +359,10 @@ void MainWindow::handleKeyDown(SDL_Keycode key)
                 float val = std::stof(buf);
                 if (m_focusedField == FOCUS_RPM) {
                     m_editRpmLimit = roundf(std::max(0.0f, val) * 100.0f) / 100.0f;
-                    if (!m_selectedMotors.empty()) publishConfigToSelection();
+                    if (!m_selectedMotors.empty()) publishConfigToSelection(false);
                 } else if (m_focusedField == FOCUS_DUTY) {
                     m_editDutyCycleLimit = roundf(std::clamp(val, 0.0f, 1.0f) * 100.0f) / 100.0f;
-                    if (!m_selectedMotors.empty()) publishConfigToSelection();
+                    if (!m_selectedMotors.empty()) publishConfigToSelection(false);
                 } else if (m_focusedField == FOCUS_DPAD_RPM) {
                     m_dpadRpmLimit = std::max(0.0f, val);
                     publishDPadConfig();
@@ -462,15 +462,15 @@ void MainWindow::handleMouseClick(int mx, int my, bool ctrlHeld)
                 switch (btn.action) {
                     case ACT_MODE_TOGGLE:
                         m_editControlMode = (m_editControlMode == 0) ? 1 : 0;
-                        if (!m_selectedMotors.empty()) publishConfigToSelection();
+                        if (!m_selectedMotors.empty()) publishConfigToSelection(false);
                         return;
                     case ACT_INV_TOGGLE:
                         m_editInverted = !m_editInverted;
-                        if (!m_selectedMotors.empty()) publishConfigToSelection();
+                        if (!m_selectedMotors.empty()) publishConfigToSelection(false);
                         return;
                     case ACT_ENABLED_TOGGLE:
                         m_editEnabled = !m_editEnabled;
-                        if (!m_selectedMotors.empty()) publishConfigToSelection();
+                        if (!m_selectedMotors.empty()) publishConfigToSelection(true);
                         return;
                     case ACT_APPLY: {
                         if (!m_rpmInputText.empty()) {
@@ -491,7 +491,7 @@ void MainWindow::handleMouseClick(int mx, int my, bool ctrlHeld)
                             std::lock_guard<std::mutex> lock(m_motorMutex);
                             m_editDutyCycleLimit = m_motors[*m_selectedMotors.begin()].duty_cycle_limit;
                         }
-                        if (!m_selectedMotors.empty()) publishConfigToSelection();
+                        if (!m_selectedMotors.empty()) publishConfigToSelection(true);
                         m_focusedField = FOCUS_NONE;
                         SDL_StopTextInput();
                         return;
