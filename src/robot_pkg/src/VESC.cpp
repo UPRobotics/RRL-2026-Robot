@@ -92,11 +92,17 @@ void VESC::setId(uint8_t id) {
     motor_id = id;
 }
 
+static void safe_reset_port(std::unique_ptr<LibSerial::SerialPort>& port) {
+    if (!port) return;
+    try { port->Close(); } catch (...) {}
+    try { port.reset(); } catch (...) { port.release(); }
+}
+
 bool VESC::tryConnectToPort(const std::string& port) {
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     try {
         if (serial_port_ && serial_port_->IsOpen()) serial_port_->Close();
-        serial_port_.reset();
+        safe_reset_port(serial_port_);
         serial_port_ = std::make_unique<SerialPort>();
         serial_port_->Open(port);
         setupPort();
@@ -105,8 +111,7 @@ bool VESC::tryConnectToPort(const std::string& port) {
             serial_port_->FlushIOBuffers();
         } catch (const std::exception& e) {
             RCLCPP_WARN(logger, "Flush failed on %s: %s", port.c_str(), e.what());
-            try { serial_port_->Close(); } catch(...) {}
-            serial_port_.reset();
+            safe_reset_port(serial_port_);
             return false;
         }
         running = true;
@@ -120,35 +125,49 @@ bool VESC::tryConnectToPort(const std::string& port) {
             }
         }
         running = false;
-        try { serial_port_->Close(); } catch(...) {}
-        serial_port_.reset();
+        safe_reset_port(serial_port_);
         return false;
     } catch (const std::exception& e) {
         RCLCPP_WARN(logger, "Port %s failed for motor_id=%u: %s", port.c_str(), motor_id, e.what());
         running = false;
-        if (serial_port_) { try { serial_port_->Close(); } catch(...) {} serial_port_.reset(); }
+        safe_reset_port(serial_port_);
+        return false;
+    } catch (...) {
+        RCLCPP_WARN(logger, "Port %s failed for motor_id=%u: unknown error", port.c_str(), motor_id);
+        running = false;
+        safe_reset_port(serial_port_);
         return false;
     }
 }
 
 bool VESC::autoConnect(const std::string& hint) {
-    // Fast path: try the cached port directly — no global scan lock needed
-    if (!hint.empty()) {
-        RCLCPP_INFO(logger, "Motor ID=%u trying hint port %s", motor_id, hint.c_str());
-        if (tryConnectToPort(hint)) return true;
-        RCLCPP_WARN(logger, "Hint port %s failed for motor_id=%u, falling back to scan", hint.c_str(), motor_id);
-    }
+    try {
+        // Fast path: try the cached port directly — no global scan lock needed
+        if (!hint.empty()) {
+            RCLCPP_INFO(logger, "Motor ID=%u trying hint port %s", motor_id, hint.c_str());
+            if (tryConnectToPort(hint)) return true;
+            RCLCPP_WARN(logger, "Hint port %s failed for motor_id=%u, falling back to scan", hint.c_str(), motor_id);
+        }
 
-    // Slow path: scan all ports under global lock to avoid two motors racing on the same port
-    std::lock_guard<std::mutex> scan_lk(scan_mutex_);
-    auto ports = scanPorts();
-    RCLCPP_INFO(logger, "Scanning for motor_id=%u across %zu ports", motor_id, ports.size());
-    for (const auto& port : ports) {
-        if (port == hint) continue;  // already tried above
-        if (tryConnectToPort(port)) return true;
+        // Slow path: scan all ports under global lock to avoid two motors racing on the same port
+        std::lock_guard<std::mutex> scan_lk(scan_mutex_);
+        auto ports = scanPorts();
+        RCLCPP_INFO(logger, "Scanning for motor_id=%u across %zu ports", motor_id, ports.size());
+        for (const auto& port : ports) {
+            if (port == hint) continue;  // already tried above
+            if (tryConnectToPort(port)) return true;
+        }
+        RCLCPP_ERROR(logger, "Failed to find motor_id=%u after scanning all ports", motor_id);
+        return false;
+    } catch (const std::exception& e) {
+        RCLCPP_ERROR(logger, "autoConnect exception for motor_id=%u: %s", motor_id, e.what());
+        running = false;
+        return false;
+    } catch (...) {
+        RCLCPP_ERROR(logger, "autoConnect unknown exception for motor_id=%u", motor_id);
+        running = false;
+        return false;
     }
-    RCLCPP_ERROR(logger, "Failed to find motor_id=%u after scanning all ports", motor_id);
-    return false;
 }
 
 void VESC::set_rpm(int32_t rpm) {

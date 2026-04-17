@@ -108,8 +108,8 @@ private:
 
     // ROS2 callbacks
     void onTelemetryReceived(const std_msgs::msg::String::SharedPtr msg);
-    void publishConfigUpdate(int configIndex);
-    void publishConfigToSelection();
+    void publishConfigUpdate(int configIndex, bool applyEditEnabled = false);
+    void publishConfigToSelection(bool applyEditEnabled = false);
     void publishDPadConfig();
     bool getCommonEditValues(const std::array<MotorData, NUM_MOTORS>& motors,
                              bool& rpmSame, bool& dutySame,

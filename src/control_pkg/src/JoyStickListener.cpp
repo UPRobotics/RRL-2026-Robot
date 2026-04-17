@@ -111,7 +111,7 @@ private:
 
         robot_msgs::msg::ControlInput out;
         out.mode          = mode_;
-        out.left_x        = msg->axes[0];
+        out.left_x        = -msg->axes[0];
         out.left_y        = msg->axes[1];
         out.right_x       = msg->axes[layout_.right_x];
         out.right_y       = msg->axes[layout_.right_y];

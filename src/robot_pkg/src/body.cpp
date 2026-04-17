@@ -265,7 +265,9 @@ class BodyNode : public rclcpp::Node{
         if (!leftMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Left motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = left_.port; }
-            if (leftMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); left_.port = leftMotor.getPortName(); }
+            try {
+                if (leftMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); left_.port = leftMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Left motor autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -304,7 +306,9 @@ class BodyNode : public rclcpp::Node{
         if (!rightMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Right motor disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = right_.port; }
-            if (rightMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); right_.port = rightMotor.getPortName(); }
+            try {
+                if (rightMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); right_.port = rightMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Right motor autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -343,7 +347,9 @@ class BodyNode : public rclcpp::Node{
         if (!rightFlipperMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Flipper Delantero disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = right_flipper_.port; }
-            if (rightFlipperMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); right_flipper_.port = rightFlipperMotor.getPortName(); }
+            try {
+                if (rightFlipperMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); right_flipper_.port = rightFlipperMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Flipper Delantero autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -366,7 +372,9 @@ class BodyNode : public rclcpp::Node{
         if (!leftFlipperMotor.isConnected()) {
             RCLCPP_WARN(get_logger(), "Flipper Trasero disconnected, reconnecting...");
             std::string hint; { std::lock_guard<std::mutex> lk(settings_mutex_); hint = left_flipper_.port; }
-            if (leftFlipperMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); left_flipper_.port = leftFlipperMotor.getPortName(); }
+            try {
+                if (leftFlipperMotor.autoConnect(hint)) { std::lock_guard<std::mutex> lk(settings_mutex_); left_flipper_.port = leftFlipperMotor.getPortName(); }
+            } catch (...) { RCLCPP_ERROR(get_logger(), "Flipper Trasero autoConnect threw unexpectedly"); }
             return;
         }
         float rpm_lim, duty_lim; bool inv; uint8_t mode;
@@ -395,6 +403,7 @@ class BodyNode : public rclcpp::Node{
         msg.rpm_limit        = s.rpm_limit;
         msg.duty_cycle_limit = s.duty_cycle_limit;
         msg.enabled          = s.enabled;
+        msg.motor_id         = s.vesc_id;
         if (!s.enabled) {
             // Publish phantom entry so the UI can see this slot is disabled
             pub->publish(msg);
@@ -528,13 +537,11 @@ class BodyNode : public rclcpp::Node{
             std::lock_guard<std::mutex> lk(settings_mutex_);
             wasEnabled          = t->enabled;
             nowEnabled          = msg->enabled;
-            t->vesc_id          = msg->motor_vesc_id;
             t->rpm_limit        = msg->rpm_limit;
             t->duty_cycle_limit = msg->duty_cycle_limit;
             t->control_mode     = msg->control_mode;
             t->inverted         = msg->inverted;
             t->enabled          = msg->enabled;
-            v->setId(msg->motor_vesc_id);
         }
         if (wasEnabled && !nowEnabled) {
             v->disconnect();
