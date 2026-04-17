@@ -8,7 +8,7 @@
     "motion_accumulate_weight": 0.15,
     "motion_min_area": 5000,
     "motion_skip_frames": 1,
-    "motion_threshold": 50.0,
+    "motion_threshold": 35.0,
     "qr_detect_interval": 1
   },
   "display": {

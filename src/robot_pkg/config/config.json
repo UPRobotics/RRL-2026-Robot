@@ -13,7 +13,7 @@
       "id": 8,
       "inverted": true,
       "name": "Flipper Trasero",
-      "port": "/dev/ttyACM2",
+      "port": "/dev/ttyACM8",
       "rpm_limit": 1500.0
     },
     {
@@ -23,7 +23,7 @@
       "id": 3,
       "inverted": false,
       "name": "Track Izquierdo",
-      "port": "/dev/ttyACM3",
+      "port": "/dev/ttyACM4",
       "rpm_limit": 1500.0
     },
     {
@@ -33,7 +33,7 @@
       "id": 6,
       "inverted": true,
       "name": "Track Derecho",
-      "port": "/dev/ttyACM4",
+      "port": "/dev/ttyACM0",
       "rpm_limit": 1500.0
     },
     {
@@ -43,7 +43,7 @@
       "id": 1,
       "inverted": true,
       "name": "Flipper Delantero",
-      "port": "/dev/ttyACM0",
+      "port": "/dev/ttyACM1",
       "rpm_limit": 1500.0
     },
     {
@@ -73,7 +73,7 @@
       "id": 4,
       "inverted": false,
       "name": "Codo",
-      "port": "/dev/ttyACM3",
+      "port": "/dev/ttyACM5",
       "rpm_limit": 3000.0
     },
     {
@@ -83,7 +83,7 @@
       "id": 7,
       "inverted": false,
       "name": "Roll",
-      "port": "/dev/ttyACM4",
+      "port": "/dev/ttyACM2",
       "rpm_limit": 2000.0
     },
     {
@@ -93,7 +93,7 @@
       "id": 2,
       "inverted": false,
       "name": "Pitch",
-      "port": "/dev/ttyACM6",
+      "port": "/dev/ttyACM9",
       "rpm_limit": 1500.0
     },
     {

@@ -2,7 +2,6 @@
 
 #include "camera_pkg/types.h"
 #include "camera_pkg/camera_stream.h"
-#include "camera_pkg/thermal_stream.h"
 #include <SDL2/SDL.h>
 #include <rclcpp/rclcpp.hpp>
 #include <vector>
@@ -10,16 +9,10 @@
 #include <thread>
 #include <mutex>
 #include <functional>
-#include <variant>
 
 namespace camera_viewer {
 
-/**
- * @brief Manages all camera streams (RTSP + thermal) including discovery and lifecycle
- * 
- * Each camera slot holds either a CameraStream (RTSP/FFmpeg) or a ThermalStream
- * (ROS2 topic).  The public API is type-agnostic — callers interact via index.
- */
+/** @brief Manages all RTSP camera streams including discovery and lifecycle */
 class CameraManager {
 public:
     using DiscoveryCallback = std::function<void(int availableCount, int totalCount)>;
@@ -60,7 +53,6 @@ public:
     CameraStats getCameraStats(int index) const;
     SDL_Texture* getCameraTexture(int index);
     
-    /** Upload pending frames (RTSP + thermal) from the main/render thread */
     void updateTexturesFromMainThread();
     
     bool isCameraAvailable(int index) const;
@@ -76,13 +68,8 @@ private:
     bool pingHost(const std::string& ip, int timeoutMs);
     void discoveryThread(DiscoveryCallback callback);
     
-    // --- Stream variant ---
-    // Each slot is either an RTSP stream or a thermal stream (or empty).
-    using StreamVar = std::variant<std::monostate,
-                                   std::unique_ptr<CameraStream>,
-                                   std::unique_ptr<ThermalStream>>;
+    using StreamVar = std::unique_ptr<CameraStream>;
 
-    // Helpers to query/act on the variant regardless of type
     bool streamIsRunning(const StreamVar& sv) const;
     void streamStop(StreamVar& sv);
     CameraStats streamGetStats(const StreamVar& sv) const;

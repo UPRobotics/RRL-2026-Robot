@@ -32,12 +32,6 @@ enum class DecodeMode {
     GPU
 };
 
-// Camera source type
-enum class CameraSourceType {
-    RTSP,       // Traditional RTSP camera via FFmpeg
-    Thermal     // ROS2 thermal camera topic
-};
-
 // Camera configuration from settings.json
 struct CameraConfig {
     std::string id;
@@ -48,9 +42,7 @@ struct CameraConfig {
     std::string url_lowres;
     bool enabled = true;
     int rotation_deg = 0; // 0, 90, 180, 270
-    CameraSourceType source_type = CameraSourceType::RTSP;
-    std::string ros_topic;  // For ROS-based cameras (e.g. "/thermal_data")
-    
+
     // Runtime state
     bool available = false;  // Set after ping check
 };

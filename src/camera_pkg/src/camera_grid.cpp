@@ -255,12 +255,21 @@ void CameraGrid::renderVideoTexture(SDL_Renderer* renderer, SDL_Rect rect, SDL_T
     }
     
     SDL_Rect destRect = calculateFitRect(rect, fitW, fitH);
-    
-    if (destRect.x > rect.x || destRect.y > rect.y) {
+    if (rotation % 180 != 0) {
+        int cx = destRect.x + destRect.w / 2;
+        int cy = destRect.y + destRect.h / 2;
+        std::swap(destRect.w, destRect.h);
+        destRect.x = cx - destRect.w / 2;
+        destRect.y = cy - destRect.h / 2;
+    }
+
+    if (destRect.x > rect.x || destRect.y > rect.y ||
+        destRect.x + destRect.w < rect.x + rect.w ||
+        destRect.y + destRect.h < rect.y + rect.h) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
         SDL_RenderFillRect(renderer, &rect);
     }
-    
+
     SDL_RenderCopyEx(renderer, texture, nullptr, &destRect, static_cast<double>(rotation), nullptr, SDL_FLIP_NONE);
 }
 

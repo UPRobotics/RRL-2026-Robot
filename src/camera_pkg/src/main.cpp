@@ -99,9 +99,6 @@ int main(int argc, char* argv[]) {
     spdlog::info("=== Camera Visualize (ROS2) ===");
     spdlog::info("Starting application...");
 
-    // ----------------------------------------------------------------
-    // Create the ROS2 node that thermal streams will subscribe through
-    // ----------------------------------------------------------------
     auto ros_node = rclcpp::Node::make_shared("camera_pkg");
     spdlog::info("ROS2 node 'camera_pkg' created");
 
@@ -136,8 +133,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Inject the ROS node into the camera manager so thermal streams
-    // can create subscriptions.
     mainWindow.getCameraManager()->setRosNode(ros_node);
 
     // ----------------------------------------------------------------

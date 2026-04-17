@@ -102,14 +102,6 @@ bool SettingsManager::load(const std::string& filepath) {
                 config.rotation_deg = cam.value("rotation_deg", 0);
                 config.available = false; // Will be set by discovery
 
-                // Determine camera source type (RTSP is default)
-                std::string srcType = cam.value("source_type", "rtsp");
-                if (srcType == "thermal") {
-                    config.source_type = CameraSourceType::Thermal;
-                    config.ros_topic = cam.value("ros_topic", "/thermal_data");
-                } else {
-                    config.source_type = CameraSourceType::RTSP;
-                }
 
                 m_cameraConfigs.push_back(config);
             }
@@ -173,13 +165,7 @@ bool SettingsManager::save(const std::string& filepath) {
             cam["enabled"] = config.enabled;
             cam["rotation_deg"] = config.rotation_deg;
 
-            // Persist source type for thermal cameras
-            if (config.source_type == CameraSourceType::Thermal) {
-                cam["source_type"] = "thermal";
-                cam["ros_topic"] = config.ros_topic;
-            } else {
-                cam["source_type"] = "rtsp";
-            }
+            cam["source_type"] = "rtsp";
 
             cameras.push_back(cam);
         }

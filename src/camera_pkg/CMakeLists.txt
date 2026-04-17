@@ -14,7 +14,6 @@ endif()
 # -------------------------------------------------------
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(std_msgs REQUIRED)
 
 # -------------------------------------------------------
 # Find system dependencies via pkg-config
@@ -48,7 +47,6 @@ set(SOURCES
   src/main_window.cpp
   src/camera_manager.cpp
   src/camera_stream.cpp
-  src/thermal_stream.cpp
   src/camera_grid.cpp
   src/ui_helpers.cpp
   src/settings_manager.cpp
@@ -91,7 +89,6 @@ target_link_libraries(camera_pkg_node
 
 ament_target_dependencies(camera_pkg_node
   rclcpp
-  std_msgs
 )
 
 # -------------------------------------------------------

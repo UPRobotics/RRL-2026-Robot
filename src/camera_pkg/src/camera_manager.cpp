@@ -21,45 +21,25 @@ namespace camera_viewer {
 
 // ── helpers to work with StreamVar ────────────────────────────────────
 bool CameraManager::streamIsRunning(const StreamVar& sv) const {
-    if (auto* cs = std::get_if<std::unique_ptr<CameraStream>>(&sv))
-        return (*cs) && (*cs)->isRunning();
-    if (auto* ts = std::get_if<std::unique_ptr<ThermalStream>>(&sv))
-        return (*ts) && (*ts)->isRunning();
-    return false;
+    return sv && sv->isRunning();
 }
 
 void CameraManager::streamStop(StreamVar& sv) {
-    if (auto* cs = std::get_if<std::unique_ptr<CameraStream>>(&sv)) {
-        if (*cs) (*cs)->stop();
-    } else if (auto* ts = std::get_if<std::unique_ptr<ThermalStream>>(&sv)) {
-        if (*ts) (*ts)->stop();
-    }
+    if (sv) sv->stop();
 }
 
 CameraStats CameraManager::streamGetStats(const StreamVar& sv) const {
-    if (auto* cs = std::get_if<std::unique_ptr<CameraStream>>(&sv)) {
-        if (*cs) return (*cs)->getStats();
-    } else if (auto* ts = std::get_if<std::unique_ptr<ThermalStream>>(&sv)) {
-        if (*ts) return (*ts)->getStats();
-    }
+    if (sv) return sv->getStats();
     return CameraStats{};
 }
 
 SDL_Texture* CameraManager::streamGetTexture(StreamVar& sv) {
-    if (auto* cs = std::get_if<std::unique_ptr<CameraStream>>(&sv)) {
-        if (*cs) return (*cs)->getFrameTexture();
-    } else if (auto* ts = std::get_if<std::unique_ptr<ThermalStream>>(&sv)) {
-        if (*ts) return (*ts)->getFrameTexture();
-    }
+    if (sv) return sv->getFrameTexture();
     return nullptr;
 }
 
 void CameraManager::streamUpdateTexture(StreamVar& sv) {
-    if (auto* cs = std::get_if<std::unique_ptr<CameraStream>>(&sv)) {
-        if (*cs && (*cs)->isRunning()) (*cs)->updateTextureFromMainThread();
-    } else if (auto* ts = std::get_if<std::unique_ptr<ThermalStream>>(&sv)) {
-        if (*ts && (*ts)->isRunning()) (*ts)->updateTextureFromMainThread();
-    }
+    if (sv && sv->isRunning()) sv->updateTextureFromMainThread();
 }
 
 // ── CameraManager ────────────────────────────────────────────────────
@@ -124,15 +104,6 @@ int CameraManager::discoverCameras(DiscoveryCallback callback) {
             continue;
         }
 
-        // Thermal cameras are always "available" (ROS topic)
-        if (config.source_type == CameraSourceType::Thermal) {
-            config.available = true;
-            availableCount++;
-            spdlog::info("Camera {} ({}) - THERMAL (topic: {})", i + 1, config.name, config.ros_topic);
-            if (callback) callback(availableCount, totalCount);
-            continue;
-        }
-
         spdlog::debug("Pinging camera {} at {}", i + 1, config.ip);
         bool reachable = pingHost(config.ip, m_settings.ping_timeout_ms);
         config.available = reachable;
@@ -163,17 +134,10 @@ void CameraManager::startAll(StreamQuality quality) {
     for (size_t i = 0; i < m_configs.size(); ++i) {
         if (!m_configs[i].available || !m_configs[i].enabled) continue;
 
-        if (m_configs[i].source_type == CameraSourceType::Thermal) {
-            auto ts = std::make_unique<ThermalStream>(
-                static_cast<int>(i), m_configs[i], m_renderer, m_rosNode);
-            if (ts->start(quality)) startedCount++;
-            m_streams[i] = std::move(ts);
-        } else {
-            auto cs = std::make_unique<CameraStream>(
-                static_cast<int>(i), m_configs[i], m_renderer, m_decodeMode);
-            if (cs->start(quality)) startedCount++;
-            m_streams[i] = std::move(cs);
-        }
+        auto cs = std::make_unique<CameraStream>(
+            static_cast<int>(i), m_configs[i], m_renderer, m_decodeMode);
+        if (cs->start(quality)) startedCount++;
+        m_streams[i] = std::move(cs);
     }
 
     spdlog::info("Started {} camera streams", startedCount);
@@ -211,17 +175,10 @@ bool CameraManager::startCamera(int index, StreamQuality quality) {
 
     streamStop(m_streams[index]);
 
-    if (m_configs[index].source_type == CameraSourceType::Thermal) {
-        auto ts = std::make_unique<ThermalStream>(index, m_configs[index], m_renderer, m_rosNode);
-        bool ok = ts->start(quality);
-        m_streams[index] = std::move(ts);
-        return ok;
-    } else {
-        auto cs = std::make_unique<CameraStream>(index, m_configs[index], m_renderer, m_decodeMode);
-        bool ok = cs->start(quality);
-        m_streams[index] = std::move(cs);
-        return ok;
-    }
+    auto cs = std::make_unique<CameraStream>(index, m_configs[index], m_renderer, m_decodeMode);
+    bool ok = cs->start(quality);
+    m_streams[index] = std::move(cs);
+    return ok;
 }
 
 void CameraManager::stopCamera(int index) {
@@ -310,10 +267,7 @@ void CameraManager::setAllQuality(StreamQuality quality) {
     std::lock_guard<std::mutex> lock(m_streamsMutex);
     m_currentQuality = quality;
     for (auto& sv : m_streams) {
-        if (auto* cs = std::get_if<std::unique_ptr<CameraStream>>(&sv)) {
-            if (*cs) (*cs)->setQuality(quality);
-        }
-        // ThermalStream::setQuality is a no-op
+        if (sv) sv->setQuality(quality);
     }
 }
 
