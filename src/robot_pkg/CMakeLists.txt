@@ -12,6 +12,8 @@ find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(tf2_ros REQUIRED)
 find_package(robot_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 
@@ -54,6 +56,10 @@ install(DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
 )
 
+install(DIRECTORY urdf/
+  DESTINATION share/${PROJECT_NAME}/urdf
+)
+
 # ---------- BODY NODE ----------
 add_executable(body_node
   src/body.cpp
@@ -69,6 +75,23 @@ install(TARGETS body_node
 )
 
 
+
+# ---------- FAST-LIO REMAPPER ----------
+add_executable(fast_lio_remapper_node
+  src/fast_lio_remapper.cpp
+)
+
+target_include_directories(fast_lio_remapper_node PUBLIC ${COMMON_INCLUDES})
+ament_target_dependencies(fast_lio_remapper_node
+  rclcpp
+  nav_msgs
+  tf2_ros
+  geometry_msgs
+)
+
+install(TARGETS fast_lio_remapper_node
+  DESTINATION lib/${PROJECT_NAME}
+)
 
 # ---------- MOTOR SIMULATOR ----------
 add_executable(motor_sim_node

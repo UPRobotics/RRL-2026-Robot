@@ -46,10 +46,12 @@ colcon build --packages-select robot_pkg
 ```
 
 Convenience scripts in `bash_files/`:
-- `compile_computer.sh` — builds `robot_msgs`, `telemetry_ui_pkg`, `control_pkg`
-- `compile_jetson.sh` — clean-builds `robot_msgs`, `robot_pkg`, `telemetry_pkg`
-- `execute_computer.sh` — launches `control_pkg joystick.launch.py` (ground station)
-- `execute_robot.sh` — launches `robot_pkg robot.launch.py` (robot side)
+- `compile_computer.sh` — **full `rm -rf build install log`** then `colcon build` (all packages)
+- `compile_jetson.sh` — same full clean, ignores `camera_pkg detections_pkg`
+- `execute_computer.sh` — sources `install/setup.bash` then launches `control_pkg joystick.launch.py`
+- `execute_robot.sh` — sources `install/setup.bash` then launches `robot_pkg robot.launch.py`
+
+> Both compile scripts do a **destructive full clean rebuild** every time. Use `colcon build --packages-select <pkg>` for incremental iteration.
 
 ## Running Nodes
 
@@ -59,7 +61,7 @@ ros2 launch control_pkg joystick.launch.py     # joy_node + joystick_node
 ros2 run telemetry_ui_pkg telemetry_ui_node    # SDL2 dashboard
 
 # Robot side
-ros2 launch robot_pkg robot.launch.py          # arm_node + body_node + telemetry_node
+ros2 launch robot_pkg robot.launch.py          # arm_node + body_node + telemetry_node (from telemetry_pkg)
 
 # Separate body/arm launches
 ros2 launch robot_pkg body.launch.py
@@ -75,7 +77,11 @@ ros2 launch thermal_pkg thermal_camera.launch.py serial_port:=/dev/ttyUSB0
 ros2 launch magnetometer_pkg magnetometer.launch.py
 
 # FastDDS unicast (required over WiFi — run before launching anything)
-source fastdds/setup.sh    # edit fastdds/fastdds_wifi.xml first with ROBOT_IP / STATION_IP
+source fastdds/setup.sh           # FastDDS; edit fastdds/fastdds_wifi.xml first
+source fastdds/setup_cyclone.sh   # CycloneDDS alternative; edit fastdds/cyclonedds.xml first
+
+# Pre-match: disable WiFi power save (also runs nvpmodel+jetson_clocks on Jetson)
+sudo bash fastdds/wifi_powersave_off.sh
 ```
 
 ---
@@ -92,7 +98,9 @@ joy_node (ros-humble-joy)
                  └─ body_node / arm_node (robot_pkg)
 ```
 
-Mode toggle: Xbox **B button** (buttons[1]) — rising-edge, toggles between 0=MOVEMENT and 1=ARM.
+Mode toggle: Xbox **B button** (buttons[1]) / PS4 **Circle** — rising-edge, toggles between 0=MOVEMENT and 1=ARM.
+
+**Controller auto-detection**: `controller_type` parameter defaults to `"auto"`. On the first Joy message, if `axes[4] > 0.5` (PS4 triggers start at 1.0; Xbox at 0.0) → PS4 layout; otherwise Xbox. Override with `controller_type:="ps4"` or `"xbox"`. `left_x` is **negated** before publishing.
 
 Joystick axis mapping (sensor_msgs/Joy.axes[]):
 ```
@@ -222,16 +230,20 @@ In ARM mode, flipper atomics are zeroed before updating mode to avoid torn reads
 - `Tracks`: config_index {1, 2}
 
 ### Arm (arm_node, ttyACM4)
-| config_index | Motor name | mode | rpm_limit |
-|---|---|---|---|
-| 4 | Hip | RPM | 3000 |
-| 5 | Shoulder | duty_cycle | 3000 |
-| 6 | Elbow | duty_cycle | 3000 |
-| 7 | Roll | RPM | 2000 |
-| 8 | Pitch | duty_cycle | 1000 |
-| 9 | Grip | duty_cycle | 1000 |
+| config_index | Motor name | mode | rpm_limit | ARM axis |
+|---|---|---|---|---|
+| 4 | Hip | RPM | 3000 | left_x |
+| 5 | Shoulder | duty_cycle | 3000 | left_y |
+| 6 | Elbow | duty_cycle | 3000 | right_y |
+| 7 | Roll | RPM | 2000 | right_x |
+| 8 | Pitch | duty_cycle | 1000 | trigger_right − trigger_left |
+| 9 | Grip | duty_cycle | 1000 | bumper_right=+1, bumper_left=−1 |
 
-All arm `duty_cycle_limit = 0.1` (from config.json).
+All arm `duty_cycle_limit = 0.1` (from config.json). Deadzone: **0.1** — inputs below 10% are zeroed.
+
+### Motor `enabled` flag
+
+Each motor in `config.json` has an `enabled` field. When `false`, the node skips `autoConnect` and publishes a phantom telemetry entry so the UI slot still renders. Check `config.json` when a motor appears connected in the UI but doesn't respond — it may be disabled.
 
 ---
 
@@ -274,6 +286,16 @@ disk I/O never blocks the drive timers.
 
 ---
 
+## Safety: Watchdog
+
+Both `body_node` and `arm_node` have a 100 ms watchdog timer. If no `/control/input` arrives for **200 ms**, all joystick command atomics are zeroed and motors stop. This fires within 200 ms of a WiFi drop. The watchdog does not arm until the first message arrives.
+
+## D-Pad Override
+
+D-pad is a priority override that applies in **any** mode (MOVEMENT or ARM). When `dpad_x != 0` or `dpad_y != 0`, body drive ignores the joystick and uses D-pad values with `DPadLimits` (default rpm=500, duty=0.10). These limits are updated via `/ground_station/dpad_config` and immediately persisted to `config.json`. D-pad does not affect arm motors.
+
+---
+
 ## Multithreading Pattern (robot_pkg)
 
 Each motor drive loop runs in its own `MutuallyExclusive` callback group → parallel
@@ -287,6 +309,14 @@ rclcpp::CallbackGroup::SharedPtr cg_left_ =
 ```
 
 Telemetry timer: 20 ms (50 Hz). Drive timers: 10 ms (100 Hz) per motor.
+
+---
+
+## Config File Coordination
+
+`body_node` owns indices 0–3 and `arm_node` owns indices 4–9, but **both read and write the same `config.json`**. Before each write, the node re-reads the file to avoid clobbering the other node's section. There is no file-level lock; simultaneous saves from both nodes (triggered by concurrent config updates) have a narrow TOCTOU race.
+
+`telemetry_pkg` has its **own separate** `telemetry_pkg/config/config.json` — it reads `arm_max_rpm` from there and does not receive runtime config updates.
 
 ---
 
@@ -352,6 +382,8 @@ Discovery port: 7412. Lease duration: 10 s.
 
 See `LATENCY_IMPROVEMENTS.md` for WiFi power-save, CycloneDDS, and UDP buffer tuning.
 
+Permanent tuning: `sudo cp fastdds/sysctl_udp.conf /etc/sysctl.d/99-ros2-udp.conf` (UDP buffer sizes) and `sudo cp fastdds/wifi_powersave_off.conf /etc/NetworkManager/conf.d/` (power save).
+
 ---
 
 ## Camera Config
@@ -360,6 +392,21 @@ IPs: `192.168.0.200–206` (7 cameras). Cameras 5–7 require auth (`admin:admin
 Config: `src/camera_pkg/config/settings.json`
 Hazmat models: `src/detections_pkg/config/models/hazmat_best.onnx` (YOLOv8),
 `hazmat_resnet18.onnx` (ResNet-18 classifier)
+
+---
+
+## Additional Packages (LiDAR / Mapping)
+
+The following packages exist in `src/` but are not part of the standard robot/ground-station launch:
+
+| Package | What it does |
+|---------|-------------|
+| `fastlio_pkg` | LiDAR-Inertial SLAM (FAST-LIO) |
+| `livox_ros_driver2` | Livox LiDAR driver |
+| `octomap_mapping` | OctoMap 3D mapping |
+| `octomap_msgs` | OctoMap messages |
+
+`colcon build` without `--packages-select` will build these. `compile_computer.sh` / `compile_jetson.sh` pass `--allow-overriding octomap_msgs` to handle the upstream conflict.
 
 ---
 

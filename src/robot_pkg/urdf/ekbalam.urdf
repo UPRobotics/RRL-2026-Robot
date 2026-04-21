@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<robot name="ekbalam">
+
+  <!-- Robot body origin: center between tracks, at ground level -->
+  <link name="base_link"/>
+
+  <!--
+    Livox MID-360 mount.
+    xyz="0 0 0.1" is a placeholder — replace with measured values once
+    the physical mount position on the chassis is confirmed.
+    Positive x = forward, positive z = up.
+  -->
+  <link name="lidar_link"/>
+
+  <joint name="base_link_to_lidar" type="fixed">
+    <parent link="base_link"/>
+    <child  link="lidar_link"/>
+    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+  </joint>
+
+</robot>

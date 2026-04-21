@@ -19,7 +19,7 @@
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.30000001192092896,
-      "enabled": false,
+      "enabled": true,
       "id": 0,
       "inverted": false,
       "name": "Track Izquierdo",
