@@ -20,6 +20,8 @@ source install/setup.bash
 
 And the node to run
 ros2 run robot_pkg arm_node
+ros2 run robot_pkg body_node
+ros2 run robot_pkg single_motor_node
 
     
 For ACM permissions
@@ -31,3 +33,12 @@ source /opt/ros/humble/setup.bash
 ros2 run joy joy_node
 
 sudo apt install libserial-dev
+
+
+
+robot msgs
+joy
+joy node
+telemetry
+body
+telemetry ui

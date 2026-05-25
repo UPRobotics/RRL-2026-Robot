@@ -58,6 +58,7 @@ install(DIRECTORY config/
 add_executable(body_node
   src/body.cpp
   src/VESC.cpp
+  src/utils/ros_vesc_motor.cpp
 )
 
 target_include_directories(body_node PUBLIC ${COMMON_INCLUDES})
@@ -68,6 +69,7 @@ install(TARGETS body_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# ---------- SINGLE MOTOR TEST NODE ----------
 
 
 # ---------- MOTOR SIMULATOR ----------
