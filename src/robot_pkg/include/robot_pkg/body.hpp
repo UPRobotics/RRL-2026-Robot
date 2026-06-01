@@ -27,4 +27,4 @@ private:
     nlohmann::json config_data_;
 };
 
-#endif // SINGLE_MOTOR_NODE_HPP
+#endif

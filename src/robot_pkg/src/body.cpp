@@ -6,7 +6,6 @@
 
 BodyNode::BodyNode() : rclcpp::Node("single_motor_node") {
     
-    // Instantiated with precise, isolated hardware-level logging names and topics
     body_left_flipper_  = std::make_unique<RosVescMotor>(this, "Flipper Delantero", "/body_left_flipper/telemetry",  [this]() { this->loadConfig(); }); 
     body_left_          = std::make_unique<RosVescMotor>(this, "Track Izquierdo",    "/body_left/telemetry",          [this]() { this->loadConfig(); }); 
     body_right_         = std::make_unique<RosVescMotor>(this, "Track Derecho",      "/body_right/telemetry",         [this]() { this->loadConfig(); }); 
@@ -32,21 +31,16 @@ void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg
     float dx = msg->dpad_x;
     float dy = msg->dpad_y;
 
-    // 1. D-PAD OVERRIDE MODE
     if (dx != 0.0f || dy != 0.0f) {
-        // Tank mixing using your D-pad inputs
         float left_cmd  = std::clamp(dy + dx, -1.0f, 1.0f);
         float right_cmd = std::clamp(dy - dx, -1.0f, 1.0f);
 
-        // Uses the wrapper's custom limit function to enforce your D-pad specific safety caps
         body_left_->setWithCustomLimits(left_cmd, 1500.0f, 0.30f);
         body_right_->setWithCustomLimits(right_cmd, 1500.0f, 0.30f);
 
-        // Flippers are unmapped on D-pad control cycles, keep them at zero
         body_left_flipper_->set(0.0f);
         body_right_flipper_->set(0.0f);
     }
-    // 2. NORMAL MOVEMENT MODE
     else if (msg->mode == 0) {
 
         float left_cmd  = std::clamp(msg->left_y + msg->left_x, -1.0f, 1.0f);
@@ -79,7 +73,6 @@ void BodyNode::loadConfig() {
         config_data_ = nlohmann::json::parse(f);
         auto& motors = config_data_["motors"];
         
-        // Dynamic name-matching helper tool to cycle through your 10-motor array file securely
         auto readByName = [&](const std::string& target_name, RosVescMotor* m) {
             for (const auto& motor_entry : motors) {
                 if (motor_entry.value("name", "") == target_name) {

@@ -36,6 +36,7 @@ set(COMMON_DEPS
 add_executable(arm_node
   src/arm.cpp
   src/VESC.cpp
+  src/utils/ros_vesc_motor.cpp
 )
 
 target_include_directories(arm_node PUBLIC ${COMMON_INCLUDES})
@@ -68,8 +69,6 @@ target_link_libraries(body_node serial)
 install(TARGETS body_node
   DESTINATION lib/${PROJECT_NAME}
 )
-
-# ---------- SINGLE MOTOR TEST NODE ----------
 
 
 # ---------- MOTOR SIMULATOR ----------
