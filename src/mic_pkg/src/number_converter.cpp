@@ -24,6 +24,64 @@ static std::vector<std::string> split(const std::string& s) {
     return tokens;
 }
 
+// ── NATO phonetic alphabet ────────────────────────────────
+
+static const std::unordered_map<std::string, std::string>& natoAlphabet() {
+    static const std::unordered_map<std::string, std::string> m = {
+        {"alpha","A"},{"bravo","B"},{"charlie","C"},{"delta","D"},
+        {"echo","E"},{"foxtrot","F"},{"golf","G"},{"hotel","H"},
+        {"india","I"},{"juliet","J"},{"kilo","K"},{"lima","L"},
+        {"mike","M"},{"november","N"},{"oscar","O"},{"papa","P"},
+        {"quebec","Q"},{"romeo","R"},{"sierra","S"},{"tango","T"},
+        {"uniform","U"},{"victor","V"},{"whiskey","W"},{"x-ray","X"},
+        {"yankee","Y"},{"zulu","Z"}
+    };
+    return m;
+}
+
+// Replace NATO phonetic words with uppercase letters: "alpha one" → "A one"
+static std::string applyNato(const std::string& text) {
+    auto words = split(toLower(text));
+    auto origWords = split(text);
+    std::string out;
+    for (size_t i = 0; i < words.size(); ++i) {
+        if (!out.empty()) out += ' ';
+        auto it = natoAlphabet().find(words[i]);
+        out += (it != natoAlphabet().end()) ? it->second : origWords[i];
+    }
+    return out;
+}
+
+// Merge runs of single uppercase letters followed by digit tokens: "A 1" → "A1", "B C 2" → "BC2"
+static std::string mergeAlphanumeric(const std::string& text) {
+    auto words = split(text);
+    std::vector<std::string> out;
+    size_t i = 0;
+    while (i < words.size()) {
+        bool isSingleCap = (words[i].size() == 1 && std::isupper((unsigned char)words[i][0]));
+        if (isSingleCap) {
+            std::string code = words[i++];
+            while (i < words.size() && words[i].size() == 1 &&
+                   std::isupper((unsigned char)words[i][0])) {
+                code += words[i++];
+            }
+            while (i < words.size() && !words[i].empty() &&
+                   std::all_of(words[i].begin(), words[i].end(), ::isdigit)) {
+                code += words[i++];
+            }
+            out.push_back(code);
+        } else {
+            out.push_back(words[i++]);
+        }
+    }
+    std::string result;
+    for (size_t j = 0; j < out.size(); ++j) {
+        if (j) result += ' ';
+        result += out[j];
+    }
+    return result;
+}
+
 // ── English ──────────────────────────────────────────────
 
 static const std::unordered_map<std::string, long long>& enUnits() {
@@ -46,29 +104,22 @@ static const std::unordered_map<std::string, long long>& enScale() {
     return m;
 }
 
-static bool isEnNumber(const std::string& w) {
-    return enUnits().count(w) || enScale().count(w) || w == "and" || w == "a";
+static bool isScaleWord(const std::string& w) {
+    return enScale().count(w) > 0;
 }
 
-// Parse a contiguous run of English number words into a number.
+// Combine a run that contains scale words (hundred/thousand/…) into one number.
 static long long parseEnglishRun(const std::vector<std::string>& words, size_t start, size_t end) {
     long long result = 0;
-    long long current = 0;  // accumulator below thousand-scale
+    long long current = 0;
 
     for (size_t i = start; i < end; ++i) {
         const std::string& w = words[i];
         if (w == "and") continue;
-        if (w == "a") {
-            // "a hundred", "a thousand"
-            if (current == 0) current = 1;
-            continue;
-        }
+        if (w == "a") { if (current == 0) current = 1; continue; }
 
         auto uit = enUnits().find(w);
-        if (uit != enUnits().end()) {
-            current += uit->second;
-            continue;
-        }
+        if (uit != enUnits().end()) { current += uit->second; continue; }
 
         auto sit = enScale().find(w);
         if (sit != enScale().end()) {
@@ -77,7 +128,6 @@ static long long parseEnglishRun(const std::vector<std::string>& words, size_t s
                 if (current == 0) current = 1;
                 current *= 100;
             } else {
-                // thousand, million, billion
                 if (current == 0) current = 1;
                 current *= scale;
                 result += current;
@@ -85,30 +135,52 @@ static long long parseEnglishRun(const std::vector<std::string>& words, size_t s
             }
         }
     }
-    result += current;
-    return result;
+    return result + current;
 }
 
 std::string NumberConverter::convertEnglish(const std::string& text) {
     auto words = split(toLower(text));
     if (words.empty()) return text;
 
-    // Preserve original casing word list for non-number words
     auto origWords = split(text);
 
     std::string out;
     size_t i = 0;
     while (i < words.size()) {
-        if (isEnNumber(words[i]) && words[i] != "and" && words[i] != "a") {
-            // Find the extent of the number run
-            size_t j = i + 1;
-            while (j < words.size() && isEnNumber(words[j])) ++j;
+        const std::string& w = words[i];
 
-            // Must have at least one actual number word (not just "and"/"a")
-            long long val = parseEnglishRun(words, i, j);
+        // Scale words anchor a compound number run ("two hundred", "a thousand …")
+        if (isScaleWord(w) ||
+            ((enUnits().count(w) && w != "and" && w != "a") &&
+             i + 1 < words.size() &&
+             (isScaleWord(words[i + 1]) ||
+              (words[i + 1] == "and") ||
+              (enUnits().count(words[i + 1]) && enUnits().at(words[i + 1]) >= 10))))
+        {
+            // Find extent of this compound-number run
+            size_t j = i + 1;
+            auto isRunWord = [](const std::string& x) {
+                return enUnits().count(x) || enScale().count(x) || x == "and" || x == "a";
+            };
+            // Only extend while scale words keep the run compound
+            bool hasScale = isScaleWord(w);
+            while (j < words.size() && isRunWord(words[j])) {
+                if (isScaleWord(words[j])) hasScale = true;
+                ++j;
+            }
+            if (hasScale) {
+                if (!out.empty()) out += ' ';
+                out += std::to_string(parseEnglishRun(words, i, j));
+                i = j;
+                continue;
+            }
+        }
+
+        // Single digit word (zero–nine, ten–nineteen, twenty…ninety) → individual token
+        if (enUnits().count(w) && w != "and" && w != "a") {
             if (!out.empty()) out += ' ';
-            out += std::to_string(val);
-            i = j;
+            out += std::to_string(enUnits().at(w));
+            ++i;
         } else {
             if (!out.empty()) out += ' ';
             out += origWords[i];
@@ -233,7 +305,8 @@ std::string NumberConverter::convertSpanish(const std::string& text) {
 
 std::string NumberConverter::convert(const std::string& text, const std::string& lang) {
     if (lang == "es") return convertSpanish(text);
-    return convertEnglish(text);
+    // NATO substitution → number words → alphanumeric merge
+    return mergeAlphanumeric(convertEnglish(applyNato(text)));
 }
 
 }  // namespace mic_pkg

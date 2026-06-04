@@ -87,13 +87,12 @@ void CameraGrid::render(SDL_Renderer* renderer, int x, int y, int width, int hei
         int totalGapY = CAMERA_GAP * (rows + 1);
         int baseWidth = (width - totalGapX) / cols;
         int baseHeight = (height - totalGapY) / rows;
-        int extraWidth = (width - totalGapX) % cols;
-        int extraHeight = (height - totalGapY) % rows;
 
         std::vector<int> colWidths(cols, baseWidth);
-        for (int i = 0; i < extraWidth; ++i) colWidths[i] += 1;
         std::vector<int> rowHeights(rows, baseHeight);
-        for (int i = 0; i < extraHeight; ++i) rowHeights[i] += 1;
+
+        colWidths[cols - 1] += (width - totalGapX) - baseWidth * cols;
+        rowHeights[rows - 1] += (height - totalGapY) - baseHeight * rows;
 
         int cameraForSlot[4];
         for (int s = 0; s < 4; ++s) {
@@ -129,14 +128,12 @@ void CameraGrid::render(SDL_Renderer* renderer, int x, int y, int width, int hei
         int totalGapY = CAMERA_GAP * (rows + 1);
         int baseWidth = (width - totalGapX) / cols;
         int baseHeight = (height - totalGapY) / rows;
-        int extraWidth = (width - totalGapX) % cols;
-        int extraHeight = (height - totalGapY) % rows;
 
         std::vector<int> colWidths(cols, baseWidth);
-        for (int i = 0; i < extraWidth; ++i) colWidths[i] += 1;
-
         std::vector<int> rowHeights(rows, baseHeight);
-        for (int i = 0; i < extraHeight; ++i) rowHeights[i] += 1;
+
+        colWidths[cols - 1] += (width - totalGapX) - baseWidth * cols;
+        rowHeights[rows - 1] += (height - totalGapY) - baseHeight * rows;
 
         int slotIndex = 0;
         int cameraY = y + CAMERA_GAP;
@@ -162,11 +159,14 @@ void CameraGrid::calculateGridLayout(int& rows, int& cols) {
     if (count <= 1) {
         rows = 1; cols = 1;
     } else if (count <= 4) {
-        rows = 2; cols = 2;
+        cols = 2;
+        rows = static_cast<int>(std::ceil(static_cast<float>(count) / cols));
     } else if (count <= 9) {
-        rows = 3; cols = 3;
+        cols = 3;
+        rows = static_cast<int>(std::ceil(static_cast<float>(count) / cols));
     } else if (count <= 16) {
-        rows = 4; cols = 4;
+        cols = 4;
+        rows = static_cast<int>(std::ceil(static_cast<float>(count) / cols));
     } else {
         cols = static_cast<int>(std::ceil(std::sqrt(count)));
         rows = static_cast<int>(std::ceil(static_cast<float>(count) / cols));

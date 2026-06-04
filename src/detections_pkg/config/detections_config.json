@@ -1,7 +1,7 @@
 {
   "camera": {
     "rotation": 0,
-    "rtsp_url": "rtsp://admin:admin@192.168.0.206:554/profile0",
+    "rtsp_url": "rtsp://192.168.0.203:554/stream1",
     "rtsp_url_lowres": "rtsp://admin:admin@192.168.0.206:554/profile1"
   },
   "detection": {

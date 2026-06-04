@@ -14,6 +14,7 @@ MicReceiver::MicReceiver()
     this->declare_parameter<std::string>("model_path_es",
         "/home/chumbi/roboticaWS/models/vosk-model-small-es-0.42");
     this->declare_parameter<std::string>("lang", "en");
+    this->declare_parameter<std::string>("grammar_en", "");
 
     device_ = this->get_parameter("device").as_string();
     sample_rate_ = static_cast<unsigned int>(this->get_parameter("sample_rate").as_int());
@@ -21,6 +22,7 @@ MicReceiver::MicReceiver()
     frames_ = static_cast<snd_pcm_uframes_t>(this->get_parameter("frames_per_period").as_int());
     model_path_en_ = this->get_parameter("model_path_en").as_string();
     model_path_es_ = this->get_parameter("model_path_es").as_string();
+    grammar_en_ = this->get_parameter("grammar_en").as_string();
     current_lang_ = this->get_parameter("lang").as_string();
 
     RCLCPP_INFO(this->get_logger(), "Mic receiver starting — device=%s rate=%u ch=%u frames=%lu",
@@ -66,8 +68,9 @@ void MicReceiver::switchLanguage(const std::string& lang)
     RCLCPP_INFO(this->get_logger(), "Switching to %s model: %s",
                 lang.c_str(), model_path.c_str());
 
+    const std::string& grammar = (lang == "en") ? grammar_en_ : std::string{};
     auto new_recognizer = std::make_unique<SpeechRecognizer>(
-        model_path, static_cast<float>(sample_rate_));
+        model_path, static_cast<float>(sample_rate_), grammar);
 
     if (!new_recognizer->isValid()) {
         RCLCPP_ERROR(this->get_logger(), "Failed to load Vosk model from '%s'", model_path.c_str());

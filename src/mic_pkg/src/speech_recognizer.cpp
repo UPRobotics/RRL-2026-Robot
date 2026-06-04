@@ -3,7 +3,8 @@
 
 namespace mic_pkg {
 
-SpeechRecognizer::SpeechRecognizer(const std::string& model_path, float sample_rate)
+SpeechRecognizer::SpeechRecognizer(const std::string& model_path, float sample_rate,
+                                   const std::string& grammar)
 {
     vosk_set_log_level(-1);  // Suppress Vosk/Kaldi logs
 
@@ -12,7 +13,12 @@ SpeechRecognizer::SpeechRecognizer(const std::string& model_path, float sample_r
         return;
     }
 
-    recognizer_ = vosk_recognizer_new(model_, sample_rate);
+    if (!grammar.empty()) {
+        recognizer_ = vosk_recognizer_new_grm(model_, sample_rate, grammar.c_str());
+    } else {
+        recognizer_ = vosk_recognizer_new(model_, sample_rate);
+    }
+
     if (!recognizer_) {
         vosk_model_free(model_);
         model_ = nullptr;

@@ -76,6 +76,7 @@ bool MainWindow::initialize() {
     if (settings.shouldRememberWindowSize()) {
         m_windowWidth = settings.getLastWindowWidth();
         m_windowHeight = settings.getLastWindowHeight();
+        m_mainAreaHeight = m_windowHeight - TOOLBAR_HEIGHT - STATSBAR_HEIGHT;
     }
 
     // Create window

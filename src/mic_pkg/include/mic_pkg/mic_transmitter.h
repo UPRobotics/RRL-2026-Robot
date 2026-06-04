@@ -18,6 +18,7 @@ public:
 private:
     // USB device auto-detection
     std::string findDeviceByUsbId(const std::string& vendor_id, const std::string& product_id);
+    std::string findPulseSource();
 
     // ALSA capture
     bool openDevice();

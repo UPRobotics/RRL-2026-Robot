@@ -44,6 +44,7 @@ private:
     snd_pcm_uframes_t frames_;
     std::string model_path_en_;
     std::string model_path_es_;
+    std::string grammar_en_;
     std::string current_lang_;
 
     // Deferred ALSA start

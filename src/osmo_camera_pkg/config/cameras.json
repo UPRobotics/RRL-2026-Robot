@@ -1,0 +1,28 @@
+{
+  "cameras": [
+    {
+      "id": "camera0",
+      "name": "OSMO Camera 0",
+      "device": "/dev/video2",
+      "topic": "/osmo_camera/camera0/image_compressed",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "enabled": true
+    },
+    {
+      "id": "camera1",
+      "name": "OSMO Camera 1",
+      "device": "/dev/video4",
+      "topic": "/osmo_camera/camera1/image_compressed",
+      "width": 1920,
+      "height": 1080,
+      "fps": 60,
+      "enabled": true
+    }
+  ],
+  "display": {
+    "window_width": 1920,
+    "window_height": 540
+  }
+}

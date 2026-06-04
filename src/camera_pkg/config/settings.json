@@ -28,7 +28,7 @@
       "ip": "192.168.0.202",
       "name": "Camera 3",
       "port": 554,
-      "rotation_deg": 180,
+      "rotation_deg": 270,
       "source_type": "rtsp",
       "url_highres": "rtsp://192.168.0.202:554/stream1",
       "url_lowres": "rtsp://192.168.0.202:554/stream2"
@@ -61,7 +61,7 @@
       "ip": "192.168.0.205",
       "name": "Camera 6",
       "port": 554,
-      "rotation_deg": 0,
+      "rotation_deg": 270,
       "source_type": "rtsp",
       "url_highres": "rtsp://admin:admin@192.168.0.205:554/profile0",
       "url_lowres": "rtsp://admin:admin@192.168.0.205:554/profile1"
@@ -97,10 +97,10 @@
   },
   "grid_2x2": {
     "slots": [
-      0,
       5,
-      4,
-      2
+      0,
+      2,
+      4
     ]
   },
   "keybindings": {

@@ -15,7 +15,10 @@ public:
     // Callback types: partial results (live preview) and final results (complete utterance)
     using TextCallback = std::function<void(const std::string& text, bool is_final)>;
 
-    SpeechRecognizer(const std::string& model_path, float sample_rate);
+    // grammar: JSON array of phrases to recognize, e.g. ["alpha", "one", "[unk]"].
+    // Empty string = free recognition (full vocabulary).
+    SpeechRecognizer(const std::string& model_path, float sample_rate,
+                     const std::string& grammar = "");
     ~SpeechRecognizer();
 
     // Feed raw PCM audio (S16_LE mono) and trigger callbacks

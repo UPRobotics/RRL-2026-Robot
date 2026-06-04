@@ -1,6 +1,7 @@
 #include "mic_pkg/mic_transmitter.h"
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -58,6 +59,29 @@ std::string MicTransmitter::findDeviceByUsbId(const std::string& vendor_id,
         }
     }
     return {};  // Not found
+}
+
+std::string MicTransmitter::findPulseSource()
+{
+    FILE* pipe = popen("pactl list sources short 2>/dev/null", "r");
+    if (!pipe) return {};
+
+    char line[512];
+    std::string result;
+    while (fgets(line, sizeof(line), pipe)) {
+        std::string s(line);
+        if (s.find("alsa_input.usb-") != std::string::npos) {
+            std::istringstream iss(s);
+            std::string index, name;
+            iss >> index >> name;
+            if (!name.empty()) {
+                result = "pulse:" + name;
+                break;
+            }
+        }
+    }
+    pclose(pipe);
+    return result;
 }
 
 MicTransmitter::MicTransmitter()
@@ -118,8 +142,18 @@ bool MicTransmitter::openDevice()
 {
     int err;
 
-    // Open PCM device for capture
+    // Open PCM device for capture; if busy (PulseAudio/PipeWire holds hw device),
+    // fall back to opening through PulseAudio ALSA plugin.
     err = snd_pcm_open(&capture_handle_, device_.c_str(), SND_PCM_STREAM_CAPTURE, 0);
+    if (err == -EBUSY) {
+        std::string pa_device = findPulseSource();
+        if (!pa_device.empty()) {
+            RCLCPP_INFO(this->get_logger(),
+                "hw device busy — falling back to PulseAudio source: %s", pa_device.c_str());
+            device_ = pa_device;
+            err = snd_pcm_open(&capture_handle_, device_.c_str(), SND_PCM_STREAM_CAPTURE, 0);
+        }
+    }
     if (err < 0) {
         RCLCPP_ERROR(this->get_logger(), "snd_pcm_open: %s", snd_strerror(err));
         return false;
