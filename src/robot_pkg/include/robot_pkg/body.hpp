@@ -4,6 +4,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "robot_pkg/ros_vesc_motor.hpp"
 #include "robot_msgs/msg/control_input.hpp"
+#include <robot_msgs/msg/motor_config.hpp>
 #include "robot_pkg/json.hpp"
 #include <memory>
 #include <string>
@@ -23,8 +24,10 @@ private:
     std::unique_ptr<RosVescMotor> body_right_flipper_;
 
     rclcpp::Subscription<robot_msgs::msg::ControlInput>::SharedPtr sub_input_;
+    rclcpp::Subscription<robot_msgs::msg::MotorConfig>::SharedPtr config_sub_;
     std::string config_path_;
     nlohmann::json config_data_;
+    void handleMotorConfig(const robot_msgs::msg::MotorConfig::SharedPtr msg);
 };
 
 #endif

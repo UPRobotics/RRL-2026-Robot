@@ -1,6 +1,7 @@
 #include "robot_pkg/body.hpp"
 #include "robot_pkg/ros_vesc_motor.hpp"
 #include "ament_index_cpp/get_package_share_directory.hpp"
+#include <robot_msgs/msg/motor_config.hpp>
 #include <fstream>
 #include <algorithm>
 
@@ -22,6 +23,13 @@ BodyNode::BodyNode() : rclcpp::Node("single_motor_node") {
     sub_input_ = this->create_subscription<robot_msgs::msg::ControlInput>(
         "/control/input", input_qos,
         [this](const robot_msgs::msg::ControlInput::SharedPtr msg) { this->onControlInput(msg); }
+    );
+
+    // Subscribe to config updates relayed from telemetry_ui -> telemetry_pkg -> /robot_config/update
+    rclcpp::QoS config_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
+    config_sub_ = this->create_subscription<robot_msgs::msg::MotorConfig>(
+        "/robot_config/update", config_qos,
+        [this](const robot_msgs::msg::MotorConfig::SharedPtr msg) { this->handleMotorConfig(msg); }
     );
 }
 
@@ -97,6 +105,65 @@ void BodyNode::loadConfig() {
         readByName("Flipper Trasero",   body_right_flipper_.get()); 
 
     } catch (...) {}
+}
+
+void BodyNode::handleMotorConfig(const robot_msgs::msg::MotorConfig::SharedPtr msg) {
+    try {
+        int idx = static_cast<int>(msg->config_index);
+        // Only apply to body indices (0-3)
+        if (idx < 0 || idx > 3) return;
+
+        config_path_ = ament_index_cpp::get_package_share_directory("robot_pkg") + "/config/config.json";
+        std::ifstream f(config_path_);
+        if (!f.is_open()) return;
+        auto j = nlohmann::json::parse(f);
+        f.close();
+
+        auto& motors = j["motors"];
+        if (idx >= static_cast<int>(motors.size())) return;
+
+        motors[idx]["id"] = msg->motor_vesc_id;
+        motors[idx]["name"] = msg->motor_name;
+        motors[idx]["rpm_limit"] = msg->rpm_limit;
+        motors[idx]["duty_cycle_limit"] = msg->duty_cycle_limit;
+        motors[idx]["control_mode"] = msg->control_mode;
+        motors[idx]["inverted"] = msg->inverted;
+        motors[idx]["enabled"] = msg->enabled;
+
+        std::ofstream out(config_path_, std::ofstream::trunc);
+        if (out.is_open()) {
+            out << j.dump(2);
+            out.close();
+        }
+
+        // Apply to in-memory motor
+        MotorSettings s;
+        switch (idx) {
+            case 0: s = body_left_flipper_->getSettings(); break;
+            case 1: s = body_left_->getSettings(); break;
+            case 2: s = body_right_->getSettings(); break;
+            case 3: s = body_right_flipper_->getSettings(); break;
+            default: break;
+        }
+        s.vesc_id = msg->motor_vesc_id;
+        s.rpm_limit = msg->rpm_limit;
+        s.duty_cycle_limit = msg->duty_cycle_limit;
+        s.control_mode = msg->control_mode;
+        s.inverted = msg->inverted;
+        s.enabled = msg->enabled;
+
+        switch (idx) {
+            case 0: body_left_flipper_->applySettings(s); break;
+            case 1: body_left_->applySettings(s); break;
+            case 2: body_right_->applySettings(s); break;
+            case 3: body_right_flipper_->applySettings(s); break;
+            default: break;
+        }
+
+        RCLCPP_INFO(this->get_logger(), "Applied MotorConfig for index %d and saved to disk.", idx);
+    } catch (...) {
+        // Ignore parsing/writing errors silently
+    }
 }
 
 int main(int argc, char * argv[]) {
