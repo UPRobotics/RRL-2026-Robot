@@ -14,6 +14,9 @@ extern "C" {
 #include <libavdevice/avdevice.h> 
 }
 
+#include <jpeglib.h>
+#include <setjmp.h>
+
 namespace camera_viewer {
 
 CameraStream::CameraStream(int cameraIndex, const CameraConfig& config, SDL_Renderer* renderer, DecodeMode decodeMode)
@@ -252,12 +255,20 @@ bool CameraStream::initDecoder(const std::string& url) {
     m_formatCtx->max_analyze_duration = 0;
     m_formatCtx->fps_probe_size = 0;
     
-    ret = avformat_find_stream_info(m_formatCtx, nullptr);
-    if (ret < 0) {
-        spdlog::error("Camera {} failed to find stream info", m_cameraIndex + 1);
-        avformat_close_input(&m_formatCtx);
-        m_formatCtx = nullptr;
-        return false;
+    // For local v4l2 devices we avoid calling avformat_find_stream_info
+    // because it may probe/dispatch into codec paths that can crash on
+    // certain system-specific MJPEG v4l2 drivers. Use the existing
+    // stream list / codec parameters directly for v4l2 inputs.
+    if (!is_v4l2) {
+        ret = avformat_find_stream_info(m_formatCtx, nullptr);
+        if (ret < 0) {
+            spdlog::error("Camera {} failed to find stream info", m_cameraIndex + 1);
+            avformat_close_input(&m_formatCtx);
+            m_formatCtx = nullptr;
+            return false;
+        }
+    } else {
+        spdlog::debug("Camera {} v4l2 input - skipping avformat_find_stream_info probe", m_cameraIndex + 1);
     }
     
     m_videoStreamIndex = -1;
@@ -461,6 +472,28 @@ bool CameraStream::decodeFrame() {
         return false;
     }
 
+    // Defensive logging: validate packet before sending to codec (helps debug crashes in libavcodec)
+    if (!m_packet->data || m_packet->size == 0) {
+        spdlog::warn("Camera {} decodeFrame: empty packet (size={}) - skipping", m_cameraIndex + 1, m_packet->size);
+        av_packet_unref(m_packet);
+        return false;
+    }
+
+    if (m_codecCtx && m_codecCtx->codec) {
+        spdlog::debug("Camera {} send_packet: codec={} pkt_size={} stream_index={}",
+                      m_cameraIndex + 1,
+                      m_codecCtx->codec->name ? m_codecCtx->codec->name : "<unknown>",
+                      m_packet->size, m_packet->stream_index);
+    }
+    // If this is a local v4l2 MJPEG stream and FFmpeg send_packet is unstable
+    // on this system, use libjpeg fallback to decode MJPEG frames directly
+    if (m_formatCtx && m_formatCtx->iformat && std::string(m_formatCtx->iformat->name).find("video4linux") != std::string::npos
+        && m_formatCtx->streams[m_videoStreamIndex]->codecpar->codec_id == AV_CODEC_ID_MJPEG) {
+        bool ok = decodeMJPEGPacketWithLibjpeg();
+        av_packet_unref(m_packet);
+        return ok;
+    }
+
     ret = avcodec_send_packet(m_codecCtx, m_packet);
     av_packet_unref(m_packet);
     
@@ -591,6 +624,75 @@ bool CameraStream::updateTexture(AVFrame* frame) {
         m_hasPendingFrame.store(true);
     }
     
+    return true;
+}
+
+bool CameraStream::decodeMJPEGPacketWithLibjpeg() {
+    if (!m_packet || !m_packet->data || m_packet->size == 0) {
+        return false;
+    }
+
+    struct jpeg_decompress_struct cinfo;
+    struct jpeg_error_mgr jerr;
+    cinfo.err = jpeg_std_error(&jerr);
+    jpeg_create_decompress(&cinfo);
+    jpeg_mem_src(&cinfo, m_packet->data, m_packet->size);
+    if (jpeg_read_header(&cinfo, TRUE) != JPEG_HEADER_OK && jpeg_read_header(&cinfo, TRUE) <= 0) {
+        // Try to proceed anyway; if header fails, abort
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+    cinfo.out_color_space = JCS_RGB;
+    if (!jpeg_start_decompress(&cinfo)) {
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+
+    const int width = cinfo.output_width;
+    const int height = cinfo.output_height;
+    const int comps = cinfo.output_components; // expect 3
+    if (width <= 0 || height <= 0 || comps < 3) {
+        jpeg_finish_decompress(&cinfo);
+        jpeg_destroy_decompress(&cinfo);
+        return false;
+    }
+
+    std::vector<uint8_t> rowbuf(width * comps);
+    std::vector<uint8_t> outbuf(static_cast<size_t>(width) * height * 4);
+
+    int y = 0;
+    while (cinfo.output_scanline < cinfo.output_height) {
+        JSAMPROW rowptr[1];
+        rowptr[0] = rowbuf.data();
+        int read = jpeg_read_scanlines(&cinfo, rowptr, 1);
+        if (read <= 0) break;
+
+        uint8_t* dst = outbuf.data() + (size_t)y * width * 4;
+        for (int x = 0; x < width; ++x) {
+            const uint8_t r = rowbuf[x * comps + 0];
+            const uint8_t g = rowbuf[x * comps + 1];
+            const uint8_t b = rowbuf[x * comps + 2];
+            dst[x * 4 + 0] = b;
+            dst[x * 4 + 1] = g;
+            dst[x * 4 + 2] = r;
+            dst[x * 4 + 3] = 0xFF;
+        }
+        ++y;
+    }
+
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
+
+    // Push decoded BGRA buffer to pending frame for main thread texture update
+    {
+        std::lock_guard<std::mutex> lock(m_pendingFrameMutex);
+        m_pendingFrameData.swap(outbuf);
+        m_pendingFrameWidth = width;
+        m_pendingFrameHeight = height;
+        m_pendingFramePitch = width * 4;
+        m_hasPendingFrame.store(true);
+    }
+
     return true;
 }
 
