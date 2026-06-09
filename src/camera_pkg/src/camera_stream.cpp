@@ -25,6 +25,16 @@ CameraStream::CameraStream(int cameraIndex, const CameraConfig& config, SDL_Rend
 {
     m_stats.state = CameraState::Disconnected;
     m_lastFpsUpdate = std::chrono::steady_clock::now();
+    m_formatCtx = nullptr;
+    m_codecCtx = nullptr;
+    m_hwDeviceCtx = nullptr;
+    m_swsCtx = nullptr;
+    m_frame = nullptr;
+    m_frameRGB = nullptr;
+    m_packet = nullptr;
+    m_texture = nullptr;
+    m_formatLogged = false;
+    
 }
 
 CameraStream::~CameraStream() {
@@ -99,11 +109,6 @@ SDL_Texture* CameraStream::getFrameTexture() {
     return m_texture;
 }
 
-bool CameraStream::updateTextureFromMainThread() {
-    if (!m_running.load() || !m_hasPendingFrame.load()) {
-        return false; // Safely skip if camera isn't running or has no frame
-    }
-}
 
 void CameraStream::setFrameCallback(FrameCallback callback) {
     std::lock_guard<std::mutex> lock(m_callbackMutex);
@@ -192,8 +197,11 @@ bool CameraStream::initDecoder(const std::string& url) {
 
     if (is_v4l2) {
         // --- 1. LOCAL USB CAMERA (Lowest Latency MJPEG Pipeline) ---
-        avdevice_register_all(); 
-        const AVInputFormat* iformat = av_find_input_format("video4linux2");
+        static std::once_flag device_init_flag;
+                std::call_once(device_init_flag, []() {
+                    avdevice_register_all(); 
+                });
+                const AVInputFormat* iformat = av_find_input_format("video4linux2");
         
         if (!iformat) {
             spdlog::error("video4linux2 driver not found in FFmpeg!");
@@ -365,6 +373,13 @@ bool CameraStream::initDecoder(const std::string& url) {
     m_frame = av_frame_alloc();
     m_frameRGB = av_frame_alloc();
     m_packet = av_packet_alloc();
+
+    // Validate core allocations to avoid crashes in decode loop
+    if (!m_frame || !m_frameRGB || !m_packet) {
+        spdlog::error("Camera {} failed to allocate frame/packet structures", m_cameraIndex + 1);
+        cleanupDecoder();
+        return false;
+    }
     
     {
         std::lock_guard<std::mutex> lock(m_statsMutex);
@@ -419,6 +434,11 @@ void CameraStream::cleanupDecoder() {
 }
 
 bool CameraStream::decodeFrame() {
+    if (!m_formatCtx || !m_packet) {
+        spdlog::warn("Camera {} decodeFrame: invalid format context or packet", m_cameraIndex + 1);
+        return false;
+    }
+
     int ret = av_read_frame(m_formatCtx, m_packet);
     if (ret < 0) {
         if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
@@ -435,6 +455,12 @@ bool CameraStream::decodeFrame() {
         return true;
     }
     
+    if (!m_codecCtx) {
+        av_packet_unref(m_packet);
+        spdlog::warn("Camera {} decodeFrame: codec context is null", m_cameraIndex + 1);
+        return false;
+    }
+
     ret = avcodec_send_packet(m_codecCtx, m_packet);
     av_packet_unref(m_packet);
     
@@ -505,7 +531,6 @@ bool CameraStream::decodeFrame() {
     }
     return true;
 }
-
 bool CameraStream::updateTexture(AVFrame* frame) {
     if (!frame || frame->width == 0 || frame->height == 0) {
         spdlog::warn("Camera {} updateTexture: invalid frame", m_cameraIndex + 1);
@@ -570,7 +595,7 @@ bool CameraStream::updateTexture(AVFrame* frame) {
 }
 
 bool CameraStream::updateTextureFromMainThread() {
-    if (!m_hasPendingFrame.load()) {
+    if (!m_running.load() || !m_hasPendingFrame.load()) {
         return false;
     }
     
