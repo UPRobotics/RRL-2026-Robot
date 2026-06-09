@@ -76,7 +76,18 @@
       "source_type": "rtsp",
       "url_highres": "rtsp://admin:admin@192.168.0.206:554/profile0",
       "url_lowres": "rtsp://admin:admin@192.168.0.206:554/profile1"
-    }
+    },
+    {
+  "enabled": true,
+  "id": "camera8",
+  "ip": "127.0.0.1",
+  "name": "DJI Action 4 (Local)",
+  "port": 0,
+  "rotation_deg": 0,
+  "source_type": "v4l2",
+  "url_highres": "/dev/video2",
+  "url_lowres": "/dev/video2"
+}
   ],
   "console": {
     "auto_open_on_startup": false,

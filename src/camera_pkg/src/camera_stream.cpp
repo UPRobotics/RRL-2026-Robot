@@ -11,6 +11,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libavutil/hwcontext.h>
+#include <libavdevice/avdevice.h> 
 }
 
 namespace camera_viewer {
@@ -92,7 +93,16 @@ CameraStats CameraStream::getStats() const {
 
 SDL_Texture* CameraStream::getFrameTexture() {
     std::lock_guard<std::mutex> lock(m_textureMutex);
+    if (!m_running.load() || !m_texture) {
+        return nullptr; // Clean fallback protection
+    }
     return m_texture;
+}
+
+bool CameraStream::updateTextureFromMainThread() {
+    if (!m_running.load() || !m_hasPendingFrame.load()) {
+        return false; // Safely skip if camera isn't running or has no frame
+    }
 }
 
 void CameraStream::setFrameCallback(FrameCallback callback) {
@@ -176,27 +186,52 @@ bool CameraStream::initDecoder(const std::string& url) {
         spdlog::error("Camera {} failed to allocate format context", m_cameraIndex + 1);
         return false;
     }
-    
-    // Set RTSP options for absolute minimum latency
-    AVDictionary* opts = nullptr;
-    av_dict_set(&opts, "rtsp_transport", "tcp", 0);
-    av_dict_set(&opts, "rtsp_flags", "prefer_tcp", 0);
-    av_dict_set(&opts, "stimeout", "5000000", 0);
-    av_dict_set(&opts, "analyzeduration", "0", 0);
-    av_dict_set(&opts, "probesize", "8192", 0);
-    av_dict_set(&opts, "fflags", "nobuffer+discardcorrupt+flush_packets+genpts", 0);
-    av_dict_set(&opts, "flags", "low_delay", 0);
-    av_dict_set(&opts, "max_delay", "0", 0);
-    av_dict_set(&opts, "reorder_queue_size", "0", 0);
-    av_dict_set(&opts, "buffer_size", "65536", 0);
-    av_dict_set(&opts, "max_interleave_delta", "0", 0);
-    av_dict_set(&opts, "avioflags", "direct", 0);
-    
-    spdlog::info("Camera {} connecting to: {}", m_cameraIndex + 1, url);
-    
-    int ret = avformat_open_input(&m_formatCtx, url.c_str(), nullptr, &opts);
-    av_dict_free(&opts);
-    
+
+    int ret = 0;
+    bool is_v4l2 = (url.find("/dev/video") == 0);
+
+    if (is_v4l2) {
+        // --- 1. LOCAL USB CAMERA (Lowest Latency MJPEG Pipeline) ---
+        avdevice_register_all(); 
+        const AVInputFormat* iformat = av_find_input_format("video4linux2");
+        
+        if (!iformat) {
+            spdlog::error("video4linux2 driver not found in FFmpeg!");
+            avformat_free_context(m_formatCtx);
+            m_formatCtx = nullptr;
+            return false;
+        }
+
+        AVDictionary* opts = nullptr;
+        av_dict_set(&opts, "input_format", "mjpeg", 0);
+        av_dict_set(&opts, "video_size", "1920x1080", 0);
+        av_dict_set(&opts, "framerate", "30", 0);
+        av_dict_set(&opts, "fflags", "nobuffer+flush_packets", 0);
+        av_dict_set(&opts, "flags", "low_delay", 0);
+
+        spdlog::info("Camera {} capturing local hardware device: {}", m_cameraIndex + 1, url);
+        ret = avformat_open_input(&m_formatCtx, url.c_str(), const_cast<AVInputFormat*>(iformat), &opts);
+        av_dict_free(&opts);
+
+    } else {
+        // --- 2. NETWORK RTSP CAMERA ---
+        AVDictionary* opts = nullptr;
+        av_dict_set(&opts, "rtsp_transport", "tcp", 0);
+        av_dict_set(&opts, "rtsp_flags", "prefer_tcp", 0);
+        av_dict_set(&opts, "stimeout", "5000000", 0);
+        av_dict_set(&opts, "analyzeduration", "0", 0);
+        av_dict_set(&opts, "probesize", "8192", 0);
+        av_dict_set(&opts, "fflags", "nobuffer+discardcorrupt+flush_packets+genpts", 0);
+        av_dict_set(&opts, "flags", "low_delay", 0);
+        av_dict_set(&opts, "max_delay", "0", 0);
+        av_dict_set(&opts, "reorder_queue_size", "0", 0);
+        av_dict_set(&opts, "buffer_size", "65536", 0);
+        
+        spdlog::info("Camera {} connecting to: {}", m_cameraIndex + 1, url);
+        ret = avformat_open_input(&m_formatCtx, url.c_str(), nullptr, &opts);
+        av_dict_free(&opts);
+    }
+
     if (ret < 0) {
         char errBuf[AV_ERROR_MAX_STRING_SIZE];
         av_strerror(ret, errBuf, sizeof(errBuf));
@@ -206,16 +241,14 @@ bool CameraStream::initDecoder(const std::string& url) {
         return false;
     }
     
-    AVDictionary* findOpts = nullptr;
-    av_dict_set(&findOpts, "analyzeduration", "0", 0);
-    av_dict_set(&findOpts, "probesize", "8192", 0);
     m_formatCtx->max_analyze_duration = 0;
     m_formatCtx->fps_probe_size = 0;
+    
     ret = avformat_find_stream_info(m_formatCtx, nullptr);
-    av_dict_free(&findOpts);
     if (ret < 0) {
         spdlog::error("Camera {} failed to find stream info", m_cameraIndex + 1);
         avformat_close_input(&m_formatCtx);
+        m_formatCtx = nullptr;
         return false;
     }
     
@@ -230,91 +263,102 @@ bool CameraStream::initDecoder(const std::string& url) {
     if (m_videoStreamIndex == -1) {
         spdlog::error("Camera {} no video stream found", m_cameraIndex + 1);
         avformat_close_input(&m_formatCtx);
+        m_formatCtx = nullptr;
         return false;
     }
     
-    const AVCodec* codec = nullptr;
     const AVCodecID cid = m_formatCtx->streams[m_videoStreamIndex]->codecpar->codec_id;
-    if (m_decodeMode == DecodeMode::GPU) {
-        const char* name = nullptr;
-        switch (cid) {
-            case AV_CODEC_ID_H264: name = "h264_cuvid"; break;
-            case AV_CODEC_ID_HEVC: name = "hevc_cuvid"; break;
-            case AV_CODEC_ID_MPEG2VIDEO: name = "mpeg2_cuvid"; break;
-            case AV_CODEC_ID_MPEG4: name = "mpeg4_cuvid"; break;
-            case AV_CODEC_ID_VP8: name = "vp8_cuvid"; break;
-            case AV_CODEC_ID_VP9: name = "vp9_cuvid"; break;
-            case AV_CODEC_ID_AV1: name = "av1_cuvid"; break;
-            default: break;
-        }
-        if (name) {
-            codec = avcodec_find_decoder_by_name(name);
-            if (!codec) {
-                spdlog::warn("Camera {} GPU decoder {} not found, falling back to CPU", m_cameraIndex + 1, name);
+    const AVCodec* codec = nullptr;
+
+    // --- CRITICAL HARDWARE VALIDATION FIX ---
+    // Check if CUDA is physically viable BEFORE choosing a hardware codec string
+    if (m_decodeMode == DecodeMode::GPU && !is_v4l2) {
+        AVBufferRef* test_hw_ctx = nullptr;
+        if (av_hwdevice_ctx_create(&test_hw_ctx, AV_HWDEVICE_TYPE_CUDA, nullptr, nullptr, 0) < 0) {
+            spdlog::warn("Camera {} CUDA hardware unavailable (No NVIDIA GPU detected). Falling back to CPU.", m_cameraIndex + 1);
+            m_decodeMode = DecodeMode::CPU;
+        } else {
+            // NVIDIA Hardware exists! safe to match cuvid wrappers
+            const char* name = nullptr;
+            switch (cid) {
+                case AV_CODEC_ID_H264: name = "h264_cuvid"; break;
+                case AV_CODEC_ID_HEVC: name = "hevc_cuvid"; break;
+                case AV_CODEC_ID_MJPEG: name = "mjpeg_cuvid"; break;
+                default: break;
+            }
+            if (name) {
+                codec = avcodec_find_decoder_by_name(name);
+                if (codec) {
+                    m_hwDeviceCtx = test_hw_ctx; // Bind verified hardware context reference
+                } else {
+                    spdlog::warn("Camera {} GPU codec {} not found in FFmpeg build. Falling back to CPU.", m_cameraIndex + 1, name);
+                    av_buffer_unref(&test_hw_ctx);
+                    m_decodeMode = DecodeMode::CPU;
+                }
+            } else {
+                av_buffer_unref(&test_hw_ctx);
+                m_decodeMode = DecodeMode::CPU;
             }
         }
+    } else {
+        m_decodeMode = DecodeMode::CPU;
     }
+
+    // Fall back to native software CPU codec if no hardware path was activated
     if (!codec) {
         codec = avcodec_find_decoder(cid);
     }
+
     if (!codec) {
-        spdlog::error("Camera {} unsupported codec", m_cameraIndex + 1);
+        spdlog::error("Camera {} unsupported codec type", m_cameraIndex + 1);
+        if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_hwDeviceCtx = nullptr; }
         avformat_close_input(&m_formatCtx);
+        m_formatCtx = nullptr;
         return false;
     }
     
     m_codecCtx = avcodec_alloc_context3(codec);
     if (!m_codecCtx) {
         spdlog::error("Camera {} failed to allocate codec context", m_cameraIndex + 1);
+        if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_hwDeviceCtx = nullptr; }
         avformat_close_input(&m_formatCtx);
+        m_formatCtx = nullptr;
         return false;
     }
     
-    ret = avcodec_parameters_to_context(m_codecCtx, 
-        m_formatCtx->streams[m_videoStreamIndex]->codecpar);
+    ret = avcodec_parameters_to_context(m_codecCtx, m_formatCtx->streams[m_videoStreamIndex]->codecpar);
     if (ret < 0) {
         spdlog::error("Camera {} failed to copy codec parameters", m_cameraIndex + 1);
         avcodec_free_context(&m_codecCtx);
+        m_codecCtx = nullptr;
+        if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_hwDeviceCtx = nullptr; }
         avformat_close_input(&m_formatCtx);
+        m_formatCtx = nullptr;
         return false;
     }
     
-    if (m_decodeMode == DecodeMode::GPU) {
-        if (av_hwdevice_ctx_create(&m_hwDeviceCtx, AV_HWDEVICE_TYPE_CUDA, nullptr, nullptr, 0) < 0) {
-            spdlog::warn("Camera {} failed to create CUDA hwdevice, falling back to CPU", m_cameraIndex + 1);
-            m_decodeMode = DecodeMode::CPU;
-        } else {
-            m_codecCtx->get_format = get_hw_format;
-            m_codecCtx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
-        }
+    // Bind hardware setup context ONLY if running a verified GPU pipeline
+    if (m_decodeMode == DecodeMode::GPU && m_hwDeviceCtx) {
+        m_codecCtx->get_format = get_hw_format;
+        m_codecCtx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
+    } else {
+        m_codecCtx->get_format = nullptr; // Ensure standard software lookup handles formatting
     }
 
     m_codecCtx->flags |= AV_CODEC_FLAG_LOW_DELAY;
     m_codecCtx->flags |= AV_CODEC_FLAG_OUTPUT_CORRUPT;
     m_codecCtx->flags2 |= AV_CODEC_FLAG2_FAST;
-    m_codecCtx->flags2 |= AV_CODEC_FLAG2_CHUNKS;
-    m_codecCtx->thread_count = 1;
-    m_codecCtx->thread_type = 0;
+    m_codecCtx->thread_count = 1; 
     m_codecCtx->delay = 0;
-    m_codecCtx->has_b_frames = 0;
-    m_codecCtx->skip_loop_filter = AVDISCARD_ALL;
-    m_codecCtx->skip_idct = AVDISCARD_NONKEY;
-    m_codecCtx->skip_frame = AVDISCARD_DEFAULT;
-    m_codecCtx->err_recognition = 0;
-    m_codecCtx->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
     
-    AVDictionary* codecOpts = nullptr;
-    av_dict_set(&codecOpts, "threads", "1", 0);
-    ret = avcodec_open2(m_codecCtx, codec, &codecOpts);
-    av_dict_free(&codecOpts);
+    ret = avcodec_open2(m_codecCtx, codec, nullptr);
     if (ret < 0) {
-        spdlog::error("Camera {} failed to open codec", m_cameraIndex + 1);
+        spdlog::error("Camera {} failed to open codec structure", m_cameraIndex + 1);
         avcodec_free_context(&m_codecCtx);
+        m_codecCtx = nullptr;
+        if (m_hwDeviceCtx) { av_buffer_unref(&m_hwDeviceCtx); m_hwDeviceCtx = nullptr; }
         avformat_close_input(&m_formatCtx);
-        if (m_hwDeviceCtx) {
-            av_buffer_unref(&m_hwDeviceCtx);
-            m_hwDeviceCtx = nullptr;
-        }
+        m_formatCtx = nullptr;
         return false;
     }
     
@@ -322,21 +366,11 @@ bool CameraStream::initDecoder(const std::string& url) {
     m_frameRGB = av_frame_alloc();
     m_packet = av_packet_alloc();
     
-    if (!m_frame || !m_frameRGB || !m_packet) {
-        spdlog::error("Camera {} failed to allocate frame/packet", m_cameraIndex + 1);
-        cleanupDecoder();
-        return false;
-    }
-    
     {
         std::lock_guard<std::mutex> lock(m_statsMutex);
         m_stats.frame_width = m_codecCtx->width;
         m_stats.frame_height = m_codecCtx->height;
     }
-    
-    spdlog::info("Camera {} decoder initialized: {}x{} @ {}", 
-                 m_cameraIndex + 1, m_codecCtx->width, m_codecCtx->height,
-                 avcodec_get_name(codec->id));
     
     return true;
 }

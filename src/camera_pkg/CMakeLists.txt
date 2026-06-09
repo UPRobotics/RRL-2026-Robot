@@ -66,6 +66,7 @@ target_include_directories(camera_pkg_node PUBLIC
   ${LIBAVFORMAT_INCLUDE_DIRS}
   ${LIBSWSCALE_INCLUDE_DIRS}
   ${LIBAVUTIL_INCLUDE_DIRS}
+  ${LIBAVDEVICE_INCLUDE_DIRS}
   ${SPDLOG_INCLUDE_DIRS}
 )
 
@@ -84,6 +85,8 @@ target_link_libraries(camera_pkg_node
   ${LIBSWSCALE_LIBRARIES}
   ${LIBAVUTIL_LIBRARIES}
   ${SPDLOG_LIBRARIES}
+  ${LIBAVDEVICE_LIBRARIES} 
+  avdevice
   pthread
 )
 
