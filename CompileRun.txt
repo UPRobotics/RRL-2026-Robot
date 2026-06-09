@@ -16,21 +16,25 @@ or
 
 cd ~/Desktop/Codigos/RRL-2026-Robot
 source install/setup.bash
+--------------------------------------------------------- Used for each build ---------------------------------------------------------
+
+
+--------------------------------------------------------- Used for each build ---------------------------------------------------------
+cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
+source /opt/ros/humble/setup.bash
+colcon build --packages-select robot_pkg --symlink-install
 
 
 And the node to run
 ros2 run robot_pkg arm_node
 ros2 run robot_pkg body_node
-ros2 run robot_pkg single_motor_node
 
-    
+---------------------------------------------------------
+
 For ACM permissions
 sudo usermod -a -G dialout $USER
 
-sudo apt install libserial-dev
-
-
-Para COdigo para la computadora que esta conecada al vesc -----------------------------------------
+--------------------------------------------------------- Para Codigo para la computadora que esta conecada al vesc -----------------------------------------
 
 cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
 source install/setup.bash
@@ -44,7 +48,7 @@ cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
 source install/setup.bash
 ros2 run telemetry_pkg telemetry_node
 
-Para codigo para la compu conectada al internet ---------------------------------------------------------
+--------------------------------------------------------- Para codigo para la compu conectada al internet ---------------------------------------------------------
 
 cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
 source install/setup.bash
