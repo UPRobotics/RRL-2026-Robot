@@ -224,21 +224,22 @@ bool CameraStream::initDecoder(const std::string& url) {
         ret = avformat_open_input(&m_formatCtx, url.c_str(), const_cast<AVInputFormat*>(iformat), &opts);
         av_dict_free(&opts);
 
-    } else {
-        // --- 2. NETWORK RTSP CAMERA ---
+} else {
+        // --- CÁMARA DE RED (JETSON VIA RTP/SDP) ---
         AVDictionary* opts = nullptr;
-        av_dict_set(&opts, "rtsp_transport", "tcp", 0);
-        av_dict_set(&opts, "rtsp_flags", "prefer_tcp", 0);
-        av_dict_set(&opts, "stimeout", "5000000", 0);
-        av_dict_set(&opts, "analyzeduration", "0", 0);
-        av_dict_set(&opts, "probesize", "8192", 0);
-        av_dict_set(&opts, "fflags", "nobuffer+discardcorrupt+flush_packets+genpts", 0);
-        av_dict_set(&opts, "flags", "low_delay", 0);
-        av_dict_set(&opts, "max_delay", "0", 0);
-        av_dict_set(&opts, "reorder_queue_size", "0", 0);
-        av_dict_set(&opts, "buffer_size", "65536", 0);
         
-        spdlog::info("Camera {} connecting to: {}", m_cameraIndex + 1, url);
+        // 1. Permisos: Permitir leer el archivo SDP y abrir la red
+        av_dict_set(&opts, "protocol_whitelist", "file,udp,rtp", 0);
+        
+        // 2. Cero Latencia: Obligar a FFmpeg a imitar 'sync=false'
+        av_dict_set(&opts, "fflags", "nobuffer+discardcorrupt", 0);
+        av_dict_set(&opts, "flags", "low_delay", 0);
+        av_dict_set(&opts, "analyzeduration", "0", 0);
+        av_dict_set(&opts, "probesize", "32", 0);
+        
+        spdlog::info("Camera {} connecting to Jetson via SDP: {}", m_cameraIndex + 1, url);
+        
+        // 3. Abrir stream
         ret = avformat_open_input(&m_formatCtx, url.c_str(), nullptr, &opts);
         av_dict_free(&opts);
     }
@@ -452,8 +453,16 @@ bool CameraStream::decodeFrame() {
 
     int ret = av_read_frame(m_formatCtx, m_packet);
     if (ret < 0) {
-        if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) {
+        if (ret == AVERROR_EOF) {
+            // Stream ended - trigger reconnect
             return false;
+        }
+        if (ret == AVERROR(EAGAIN)) {
+            // Transient no-data condition (network jitter). Wait briefly
+            // and continue rather than tearing down the decoder which
+            // causes 1s reconnect gaps.
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            return true;
         }
         char errBuf[AV_ERROR_MAX_STRING_SIZE];
         av_strerror(ret, errBuf, sizeof(errBuf));
@@ -476,7 +485,8 @@ bool CameraStream::decodeFrame() {
     if (!m_packet->data || m_packet->size == 0) {
         spdlog::warn("Camera {} decodeFrame: empty packet (size={}) - skipping", m_cameraIndex + 1, m_packet->size);
         av_packet_unref(m_packet);
-        return false;
+        // Skip empty packet but keep decoder alive
+        return true;
     }
 
     if (m_codecCtx && m_codecCtx->codec) {
@@ -487,8 +497,11 @@ bool CameraStream::decodeFrame() {
     }
     // If this is a local v4l2 MJPEG stream and FFmpeg send_packet is unstable
     // on this system, use libjpeg fallback to decode MJPEG frames directly
-    if (m_formatCtx && m_formatCtx->iformat && std::string(m_formatCtx->iformat->name).find("video4linux") != std::string::npos
-        && m_formatCtx->streams[m_videoStreamIndex]->codecpar->codec_id == AV_CODEC_ID_MJPEG) {
+    // If the incoming stream codec is MJPEG, prefer our libjpeg fallback.
+    // Some system FFmpeg/libavcodec MJPEG decoders can crash on certain
+    // RTP/SDP/v4l2 inputs — use the stable libjpeg path for MJPEG packets.
+    if (m_formatCtx && m_formatCtx->streams[m_videoStreamIndex]->codecpar->codec_id == AV_CODEC_ID_MJPEG) {
+        spdlog::debug("Camera {} using libjpeg MJPEG fallback", m_cameraIndex + 1);
         bool ok = decodeMJPEGPacketWithLibjpeg();
         av_packet_unref(m_packet);
         return ok;

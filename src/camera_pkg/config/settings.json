@@ -80,13 +80,13 @@
     {
   "enabled": true,
   "id": "camera8",
-  "ip": "127.0.0.1",
-  "name": "DJI Action 4 (Local)",
-  "port": 0,
+  "ip": "127.0.0.1",  
+ "name": "DJI Action 4 (Local 1)",
+  "port": 5000,
   "rotation_deg": 0,
-  "source_type": "v4l2",
-  "url_highres": "/dev/video2",
-  "url_lowres": "/dev/video2"
+  "source_type": "sdp",
+      "url_highres": "camera1.sdp",
+      "url_lowres": "camera1.sdp"
 }
   ],
   "console": {
