@@ -1,5 +1,6 @@
 #include "telemetry_ui_pkg/main_window.h"
 #include "telemetry_ui_pkg/json.hpp"
+#include <std_msgs/msg/bool.hpp>
 #include <robot_msgs/msg/d_pad_config.hpp>
 #include <std_msgs/msg/u_int8.hpp>
 
@@ -25,6 +26,10 @@ enum EditAction {
     ACT_ENABLED_TOGGLE,
     ACT_APPLY,
 };
+
+// Footer button actions
+static const int ACT_SET_AUTO   = 100;
+static const int ACT_SET_TELEOP = 101;
 
 // Motor group definitions — config_index values that belong together
 static const std::array<GroupDef, 2> MOTOR_GROUPS = {{
@@ -140,6 +145,11 @@ void MainWindow::setRosNode(rclcpp::Node::SharedPtr node)
 
     m_dpadConfigPub = m_rosNode->create_publisher<robot_msgs::msg::DPadConfig>(
         "/ground_station/dpad_config", config_qos
+    );
+
+    // Publisher for autonomy flag (published on demand when buttons pressed)
+    m_autonomyPub = m_rosNode->create_publisher<std_msgs::msg::Bool>(
+        "/ground_station/is_autonomous", rclcpp::QoS(1).reliable()
     );
 
     spdlog::info("ROS2 telemetry subscription and config publisher created");
@@ -508,6 +518,33 @@ void MainWindow::handleMouseClick(int mx, int my, bool ctrlHeld)
     }
 
     // Check motor card clicks
+    // Check footer buttons (autonomy) — they live in the footer area
+    for (const auto& fb : m_footerButtons) {
+        if (pointInRect(mx, my, fb.x, fb.y, fb.w, fb.h)) {
+            if (m_focusedField != FOCUS_NONE) {
+                m_focusedField = FOCUS_NONE;
+                SDL_StopTextInput();
+            }
+            if (fb.action == ACT_SET_AUTO) {
+                m_isAutonomous.store(true);
+                if (m_autonomyPub) {
+                    std_msgs::msg::Bool msg;
+                    msg.data = true;
+                    m_autonomyPub->publish(msg);
+                }
+                spdlog::info("Set is_autonomous = true (Auto button)");
+            } else if (fb.action == ACT_SET_TELEOP) {
+                m_isAutonomous.store(false);
+                if (m_autonomyPub) {
+                    std_msgs::msg::Bool msg;
+                    msg.data = false;
+                    m_autonomyPub->publish(msg);
+                }
+                spdlog::info("Set is_autonomous = false (Teleop button)");
+            }
+            return;
+        }
+    }
     for (const auto& card : m_cardRects) {
         if (card.configIndex < 0) continue;
         if (pointInRect(mx, my, card.x, card.y, card.w, card.h)) {
@@ -1211,6 +1248,7 @@ void MainWindow::renderEditPanel(int x, int y, int w, int h)
 
 void MainWindow::renderFooter(int winW, int winH)
 {
+    m_footerButtons.clear();
     int footerY = winH - FOOTER_H;
 
     SDL_Rect rect = {0, footerY, winW, FOOTER_H};
@@ -1263,6 +1301,27 @@ void MainWindow::renderFooter(int winW, int winH)
         std::snprintf(buf, sizeof(buf), "%.0f%%", gpu);
     }
     drawText(col3, valueY, buf, getStatColor(gpu), m_font18);
+
+    // --- Autonomy buttons (to the right) ---
+    int btnW = 90;
+    int btnH = 34;
+    int spacing = 8;
+    int rightX = winW - STAT_PAD - btnW;
+    int btnY = footerY + (FOOTER_H - btnH) / 2;
+
+    // Order: left = Teleop (false), right = Auto (true)
+    int autoX   = rightX;
+    int teleopX = rightX - btnW - spacing;
+
+    // Auto button style reflects current state
+    SDL_Color autoBg = m_isAutonomous.load() ? Colors::ACCENT_BLUE : Colors::BUTTON_BG;
+    SDL_Color teleopBg = m_isAutonomous.load() ? Colors::BUTTON_BG : Colors::ACCENT_BLUE;
+
+    drawButton(teleopX, btnY, btnW, btnH, "Teleop", teleopBg, m_font14);
+    m_footerButtons.push_back({teleopX, btnY, btnW, btnH, ACT_SET_TELEOP});
+
+    drawButton(autoX, btnY, btnW, btnH, "Auto", autoBg, m_font14);
+    m_footerButtons.push_back({autoX, btnY, btnW, btnH, ACT_SET_AUTO});
 }
 
 // -------------------------------------------------------

@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <atomic>
 
 struct VESCData {
     float temp_fet = 0.0f;
@@ -45,6 +46,7 @@ class VESC{
         // Shared across all VESC instances — prevents two motors from scanning
         // the same port simultaneously during autoConnect()
         static std::mutex scan_mutex_;
+        static std::atomic<bool> s_suppress_logs_;
         
         void setupPort();
         // Try to connect to one specific port and verify motor ID. No scan_mutex_ acquired.
@@ -73,6 +75,10 @@ class VESC{
         void request_values();
         std::vector<uint8_t> read_bytes();
         bool get_telemetry(VESCData &out);
+
+        // Control logging from external code: when true, VESC logging is suppressed.
+        static void setSuppressLogs(bool v) { s_suppress_logs_.store(v); }
+        static bool getSuppressLogs() { return s_suppress_logs_.load(); }
 
 };
 #endif // VESC_HPP

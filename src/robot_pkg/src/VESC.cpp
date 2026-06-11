@@ -9,6 +9,9 @@
 using namespace LibSerial;
 
 std::mutex VESC::scan_mutex_;
+std::atomic<bool> VESC::s_suppress_logs_{false};
+
+
 
 VESC::VESC(uint8_t id, int baud, int to) : motor_id(id), baudrate(baud), timeout(to),logger(rclcpp::get_logger("VESC")) {
         serial_port_ = std::make_unique<SerialPort>();
@@ -43,7 +46,7 @@ bool VESC::connect() {
         running = true;
         return true;
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(logger, "Connection failed: %s", e.what());
+        if (!VESC::getSuppressLogs()) RCLCPP_ERROR(logger, "Connection failed: %s", e.what());
         return false;
     }
 }
@@ -53,11 +56,11 @@ void VESC::disconnect() {
     running = false;
     if (!serial_port_) return;
     
-    try {
+        try {
         serial_port_->Close();
-        RCLCPP_INFO(logger, "Disconnected.");
+        if (!VESC::getSuppressLogs()) RCLCPP_INFO(logger, "Disconnected.");
     } catch(...) {
-        RCLCPP_WARN(logger, "Close failed during disconnect (USB gone?)");
+        if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Close failed during disconnect (USB gone?)");
     }
 }
 
@@ -68,7 +71,7 @@ bool VESC::isConnected(){
     try{
         return serial_port_->IsOpen();
     }catch(const std::exception& e){
-        RCLCPP_DEBUG(logger, "IsOpen() threw exception: %s", e.what());
+        if (!VESC::getSuppressLogs()) RCLCPP_DEBUG(logger, "IsOpen() threw exception: %s", e.what());
         return false;
     }catch(...){
         return false;
@@ -109,8 +112,8 @@ bool VESC::tryConnectToPort(const std::string& port) {
         try {
             serial_port_->FlushInputBuffer();
             serial_port_->FlushIOBuffers();
-        } catch (const std::exception& e) {
-            RCLCPP_WARN(logger, "Flush failed on %s: %s", port.c_str(), e.what());
+            } catch (const std::exception& e) {
+            if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Flush failed on %s: %s", port.c_str(), e.what());
             safe_reset_port(serial_port_);
             return false;
         }
@@ -120,7 +123,7 @@ bool VESC::tryConnectToPort(const std::string& port) {
             if (attempt > 0) { try { serial_port_->FlushInputBuffer(); } catch(...) {} }
             if (get_telemetry(data) && data.motor_controller_id == motor_id) {
                 port_name = port;
-                RCLCPP_INFO(logger, "Motor ID=%u connected to %s", motor_id, port.c_str());
+                if (!VESC::getSuppressLogs()) RCLCPP_INFO(logger, "Motor ID=%u connected to %s", motor_id, port.c_str());
                 return true;
             }
         }
@@ -128,12 +131,12 @@ bool VESC::tryConnectToPort(const std::string& port) {
         safe_reset_port(serial_port_);
         return false;
     } catch (const std::exception& e) {
-        RCLCPP_WARN(logger, "Port %s failed for motor_id=%u: %s", port.c_str(), motor_id, e.what());
+        if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Port %s failed for motor_id=%u: %s", port.c_str(), motor_id, e.what());
         running = false;
         safe_reset_port(serial_port_);
         return false;
     } catch (...) {
-        RCLCPP_WARN(logger, "Port %s failed for motor_id=%u: unknown error", port.c_str(), motor_id);
+        if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Port %s failed for motor_id=%u: unknown error", port.c_str(), motor_id);
         running = false;
         safe_reset_port(serial_port_);
         return false;
@@ -144,27 +147,27 @@ bool VESC::autoConnect(const std::string& hint) {
     try {
         // Fast path: try the cached port directly — no global scan lock needed
         if (!hint.empty()) {
-            RCLCPP_INFO(logger, "Motor ID=%u trying hint port %s", motor_id, hint.c_str());
+            if (!VESC::getSuppressLogs()) RCLCPP_INFO(logger, "Motor ID=%u trying hint port %s", motor_id, hint.c_str());
             if (tryConnectToPort(hint)) return true;
-            RCLCPP_WARN(logger, "Hint port %s failed for motor_id=%u, falling back to scan", hint.c_str(), motor_id);
+            if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Hint port %s failed for motor_id=%u, falling back to scan", hint.c_str(), motor_id);
         }
 
         // Slow path: scan all ports under global lock to avoid two motors racing on the same port
         std::lock_guard<std::mutex> scan_lk(scan_mutex_);
         auto ports = scanPorts();
-        RCLCPP_INFO(logger, "Scanning for motor_id=%u across %zu ports", motor_id, ports.size());
+        if (!VESC::getSuppressLogs()) RCLCPP_INFO(logger, "Scanning for motor_id=%u across %zu ports", motor_id, ports.size());
         for (const auto& port : ports) {
             if (port == hint) continue;  // already tried above
             if (tryConnectToPort(port)) return true;
         }
-        RCLCPP_ERROR(logger, "Failed to find motor_id=%u after scanning all ports", motor_id);
+        if (!VESC::getSuppressLogs()) RCLCPP_ERROR(logger, "Failed to find motor_id=%u after scanning all ports", motor_id);
         return false;
     } catch (const std::exception& e) {
-        RCLCPP_ERROR(logger, "autoConnect exception for motor_id=%u: %s", motor_id, e.what());
+        if (!VESC::getSuppressLogs()) RCLCPP_ERROR(logger, "autoConnect exception for motor_id=%u: %s", motor_id, e.what());
         running = false;
         return false;
     } catch (...) {
-        RCLCPP_ERROR(logger, "autoConnect unknown exception for motor_id=%u", motor_id);
+        if (!VESC::getSuppressLogs()) RCLCPP_ERROR(logger, "autoConnect unknown exception for motor_id=%u", motor_id);
         running = false;
         return false;
     }
@@ -184,7 +187,7 @@ void VESC::set_rpm(int32_t rpm) {
 
         send_vesc_packet(payload);
     }catch(...){
-        RCLCPP_ERROR(logger, "set_rpm unknown error");
+        if (!VESC::getSuppressLogs()) RCLCPP_ERROR(logger, "set_rpm unknown error");
         running = false;
         try { if(serial_port_) serial_port_->Close(); } catch(...) {}
     }
@@ -204,7 +207,7 @@ void VESC::set_duty_cycle(float duty) {
         payload.push_back(static_cast<uint8_t>( scaled        & 0xFF));
         send_vesc_packet(payload);
     } catch (...) {
-        RCLCPP_ERROR(logger, "set_duty_cycle unknown error");
+        if (!VESC::getSuppressLogs()) RCLCPP_ERROR(logger, "set_duty_cycle unknown error");
         running = false;
         try { if (serial_port_) serial_port_->Close(); } catch (...) {}
     }
@@ -227,7 +230,7 @@ void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
 
         serial_port_->Write(packet);
     }catch(...){
-        RCLCPP_WARN(logger, "Write failed (unknown error)");
+        if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Write failed (unknown error)");
         running = false;
         try { if(serial_port_) serial_port_->Close(); } catch(...) {}
     }
@@ -327,19 +330,19 @@ bool VESC::get_telemetry(VESCData& out) {
     if (!running) return false;
 
     auto raw = read_bytes();
-    if (raw.empty()) {
-        RCLCPP_WARN(logger, "read_bytes() returned empty — no data from VESC (timeout)");
+        if (raw.empty()) {
+        if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "read_bytes() returned empty — no data from VESC (timeout)");
         return false;
     }
 
     auto payload = find_packet(raw);
     if (payload.empty()) {
-        RCLCPP_WARN(logger, "find_packet() failed: got %zu raw bytes but no valid VESC frame", raw.size());
+        if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "find_packet() failed: got %zu raw bytes but no valid VESC frame", raw.size());
         return false;
     }
 
     if (payload.size() < 29 || payload[0] != 4) {
-        RCLCPP_WARN(logger, "Invalid payload: size=%zu, cmd=0x%02X (expected >=29 bytes, cmd=0x04)",
+        if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Invalid payload: size=%zu, cmd=0x%02X (expected >=29 bytes, cmd=0x04)",
             payload.size(), payload.empty() ? 0 : payload[0]);
         return false;
     }

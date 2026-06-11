@@ -8,7 +8,9 @@
 #include "robot_pkg/json.hpp"
 #include <memory>
 #include <string>
-#include <twist__struct.hpp>
+#include <atomic>
+#include <std_msgs/msg/bool.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 
 class BodyNode : public rclcpp::Node {
 public:
@@ -29,6 +31,7 @@ private:
     rclcpp::Subscription<robot_msgs::msg::MotorConfig>::SharedPtr config_sub_;
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_CmdVel;
+    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr sub_autonomy_;
 
     float max_linear_;
     float max_angular_;
@@ -36,7 +39,9 @@ private:
     std::string config_path_;
     nlohmann::json config_data_;
     void handleMotorConfig(const robot_msgs::msg::MotorConfig::SharedPtr msg);
-    bool is_autonomous_ = false;
+    std::atomic<bool> is_autonomous_{false};
+    std::atomic<bool> joystick_override{false};
+
 };
 
 #endif

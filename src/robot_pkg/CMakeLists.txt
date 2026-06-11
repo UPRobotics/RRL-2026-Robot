@@ -19,7 +19,6 @@ find_package(ament_index_cpp REQUIRED)
 set(COMMON_INCLUDES
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
-  /usr/include
 )
 
 # Common ROS deps
@@ -41,6 +40,10 @@ add_executable(arm_node
 
 target_include_directories(arm_node PUBLIC ${COMMON_INCLUDES})
 ament_target_dependencies(arm_node ${COMMON_DEPS})
+
+# typesupport targets for message packages are not required to be retrieved here;
+# ament_target_dependencies already links the necessary message headers and libs.
+
 target_link_libraries(arm_node serial)
 
 install(TARGETS arm_node
@@ -64,6 +67,8 @@ add_executable(body_node
 
 target_include_directories(body_node PUBLIC ${COMMON_INCLUDES})
 ament_target_dependencies(body_node ${COMMON_DEPS})
+
+
 target_link_libraries(body_node serial)
 
 install(TARGETS body_node
@@ -78,7 +83,6 @@ add_executable(motor_sim_node
 
 target_include_directories(motor_sim_node PUBLIC ${COMMON_INCLUDES})
 ament_target_dependencies(motor_sim_node rclcpp robot_msgs)
-
 install(TARGETS motor_sim_node
   DESTINATION lib/${PROJECT_NAME}
 )

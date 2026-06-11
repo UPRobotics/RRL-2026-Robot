@@ -4,6 +4,7 @@
 #include <SDL2/SDL_ttf.h>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <robot_msgs/msg/motor_config.hpp>
 #include <robot_msgs/msg/d_pad_config.hpp>
 #include <std_msgs/msg/u_int8.hpp>
@@ -186,6 +187,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr m_modeSub;
     std::atomic<uint8_t> m_currentMode{0};  // 0=MOVEMENT, 1=ARM
     rclcpp::Publisher<robot_msgs::msg::DPadConfig>::SharedPtr m_dpadConfigPub;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr m_autonomyPub;
+    std::atomic<bool> m_isAutonomous{false};
 
     // Motor data (written by ROS callback, read by render)
     std::mutex m_motorMutex;
@@ -226,6 +229,7 @@ private:
 
     struct ButtonRect { int x, y, w, h; int action; };
     std::vector<ButtonRect> m_editButtons;
+    std::vector<ButtonRect> m_footerButtons;
 };
 
 } // namespace telemetry_ui
