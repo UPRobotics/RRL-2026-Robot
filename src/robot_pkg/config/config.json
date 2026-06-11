@@ -10,7 +10,7 @@
       "control_mode": 1,
       "duty_cycle_limit": 0.15000000596046448,
       "enabled": true,
-      "id": 5,
+      "id": 2,
       "inverted": true,
       "name": "Flipper Trasero",
       "port": "/dev/ttyACM5",
@@ -19,31 +19,31 @@
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.30000001192092896,
-      "enabled": false,
-      "id": 0,
-      "inverted": false,
+      "enabled": true,
+      "id": 6,
+      "inverted": true,
       "name": "Track Izquierdo",
-      "port": "/dev/ttyACM2",
-      "rpm_limit": 1500.0
+      "port": "/dev/ttyACM0",
+      "rpm_limit": 15000.0
     },
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.30000001192092896,
       "enabled": true,
       "id": 3,
-      "inverted": false,
+      "inverted": true,
       "name": "Track Derecho",
-      "port": "/dev/ttyACM3",
-      "rpm_limit": 1500.0
+      "port": "/dev/ttyACM1",
+      "rpm_limit": 15000.0
     },
     {
       "control_mode": 1,
-      "duty_cycle_limit": 0.15000000596046448,
+      "duty_cycle_limit": 0.30000001192092896,
       "enabled": true,
-      "id": 6,
+      "id": 2,
       "inverted": true,
-      "name": "Flipper Delantero",
-      "port": "/dev/ttyACM1",
+      "name": "Flipper Trasero",
+      "port": "/dev/ttyACM5",
       "rpm_limit": 1500.0
     },
     {
