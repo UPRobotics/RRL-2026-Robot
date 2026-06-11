@@ -8,6 +8,7 @@
 #include "robot_pkg/json.hpp"
 #include <memory>
 #include <string>
+#include <twist__struct.hpp>
 
 class BodyNode : public rclcpp::Node {
 public:
@@ -16,6 +17,7 @@ public:
 
 private:
     void onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg);
+    void onCmdVel(const geometry_msgs::msg::Twist::SharedPtr msg);
     void loadConfig();
 
     std::unique_ptr<RosVescMotor> body_left_flipper_;
@@ -25,9 +27,16 @@ private:
 
     rclcpp::Subscription<robot_msgs::msg::ControlInput>::SharedPtr sub_input_;
     rclcpp::Subscription<robot_msgs::msg::MotorConfig>::SharedPtr config_sub_;
+
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_CmdVel;
+
+    float max_linear_;
+    float max_angular_;
+
     std::string config_path_;
     nlohmann::json config_data_;
     void handleMotorConfig(const robot_msgs::msg::MotorConfig::SharedPtr msg);
+    bool is_autonomous_ = false;
 };
 
 #endif

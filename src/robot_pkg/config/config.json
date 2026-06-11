@@ -3,7 +3,8 @@
     "control_mode": 0,
     "flipper_max_rpm": 5000.0,
     "mobility_max_rpm": 8000.0,
-    "selected_flipper": 0
+    "selected_flipper": 0,
+    "is_autonomous" : false
   },
   "motors": [
     {

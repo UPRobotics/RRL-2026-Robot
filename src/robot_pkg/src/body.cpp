@@ -4,6 +4,7 @@
 #include <robot_msgs/msg/motor_config.hpp>
 #include <fstream>
 #include <algorithm>
+#include <iostream>
 
 BodyNode::BodyNode() : rclcpp::Node("single_motor_node") {
     
@@ -19,11 +20,23 @@ BodyNode::BodyNode() : rclcpp::Node("single_motor_node") {
     body_right_->autoConnectInit();
     body_right_flipper_->autoConnectInit();
 
+ 
+    rclcpp::QoS CONTROL_QOS = rclcpp::QoS(rclcpp::KeepLast(1))
+    .best_effort()
+    .durability_volatile();
+
+
     rclcpp::QoS input_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
     sub_input_ = this->create_subscription<robot_msgs::msg::ControlInput>(
         "/control/input", input_qos,
         [this](const robot_msgs::msg::ControlInput::SharedPtr msg) { this->onControlInput(msg); }
     );
+
+    // Declare autonomous/cmd_vel parameters (defaults match cmd_vel_to_control)
+    max_linear_  = this->declare_parameter<float>("max_linear_vel",  0.5f);
+    max_angular_ = this->declare_parameter<float>("max_angular_vel", 1.0f);
+    RCLCPP_INFO(this->get_logger(), "BodyNode ready. max_linear=%.2f max_angular=%.2f is_autonomous=%s",
+                max_linear_, max_angular_, is_autonomous_ ? "true" : "false");
 
     // Subscribe to config updates relayed from telemetry_ui -> telemetry_pkg -> /robot_config/update
     rclcpp::QoS config_qos = rclcpp::QoS(rclcpp::KeepLast(10)).reliable();
@@ -31,6 +44,13 @@ BodyNode::BodyNode() : rclcpp::Node("single_motor_node") {
         "/robot_config/update", config_qos,
         [this](const robot_msgs::msg::MotorConfig::SharedPtr msg) { this->handleMotorConfig(msg); }
     );
+
+    sub_CmdVel = create_subscription<geometry_msgs::msg::Twist>(
+            "/cmd_vel", 10,
+            [this](const geometry_msgs::msg::Twist::SharedPtr msg) {
+                onCmdVel(msg);
+            });
+
 }
 
 BodyNode::~BodyNode() {}
@@ -39,7 +59,14 @@ void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg
     float dx = msg->dpad_x;
     float dy = msg->dpad_y;
 
+    if (is_autonomous_ && (dx == 0.0f && dy == 0.0f)) {
+
+        
+        return;
+    }
+
     if (dx != 0.0f || dy != 0.0f) {
+        is_autonomous_ = false;
         float left_cmd  = std::clamp(dy + dx, -1.0f, 1.0f);
         float right_cmd = std::clamp(dy - dx, -1.0f, 1.0f);
 
@@ -79,6 +106,10 @@ void BodyNode::loadConfig() {
         if (!f.is_open()) return;
         
         config_data_ = nlohmann::json::parse(f);
+        // Read global settings
+        if (config_data_.contains("global_settings")) {
+            is_autonomous_ = config_data_["global_settings"].value("is_autonomous", false);
+        }
         auto& motors = config_data_["motors"];
         
         auto readByName = [&](const std::string& target_name, RosVescMotor* m) {
@@ -165,6 +196,23 @@ void BodyNode::handleMotorConfig(const robot_msgs::msg::MotorConfig::SharedPtr m
         // Ignore parsing/writing errors silently
     }
 }
+
+    void BodyNode::onCmdVel(const geometry_msgs::msg::Twist::SharedPtr msg) {
+        if (!is_autonomous_) return;
+
+        float forward = std::clamp((float)(msg->linear.x / max_linear_), -1.0f, 1.0f);
+        float turn = std::clamp((float)(-msg->angular.z / max_angular_), -1.0f, 1.0f);
+
+        float left_cmd  = std::clamp(forward + turn, -1.0f, 1.0f);
+        float right_cmd = std::clamp(forward - turn, -1.0f, 1.0f);
+
+        body_left_->set(left_cmd);
+        body_right_->set(right_cmd);
+
+        body_left_flipper_->set(0.0f);
+        body_right_flipper_->set(0.0f);
+    }
+
 
 int main(int argc, char * argv[]) {
     rclcpp::init(argc, argv);
