@@ -17,8 +17,7 @@ or
 cd ~/Desktop/Codigos/RRL-2026-Robot
 source install/setup.bash
 --------------------------------------------------------- Used for each build ---------------------------------------------------------
-
-
+cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot/bash_files && chmod +x execute_robot.sh
 --------------------------------------------------------- Used for each build ---------------------------------------------------------
 cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
 source /opt/ros/humble/setup.bash
@@ -33,6 +32,9 @@ ros2 run robot_pkg body_node
 
 For ACM permissions
 sudo usermod -a -G dialout $USER
+
+For bash file permissions
+chmod +x execute_robot.sh
 
 --------------------------------------------------------- Para Codigo para la computadora que esta conecada al vesc -----------------------------------------
 

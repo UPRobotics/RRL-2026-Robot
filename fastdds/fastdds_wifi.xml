@@ -75,13 +75,13 @@
         <initialPeersList>
           <locator>
             <udpv4>
-              <address>192.168.0.254</address>   <!-- p.ej. 192.168.1.100 -->
+              <address>192.168.0.254</address>   <!--  JETSON IP -->
               <port>7412</port>
             </udpv4>
           </locator>
           <locator>
             <udpv4>
-              <address>192.168.0.255</address> <!-- p.ej. 192.168.1.200 -->
+              <address>192.168.0.255</address> <!-- DRIVER STATION IP -->
               <port>7412</port>
             </udpv4>
           </locator>

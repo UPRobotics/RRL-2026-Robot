@@ -152,6 +152,14 @@ void MainWindow::setRosNode(rclcpp::Node::SharedPtr node)
         "/ground_station/is_autonomous", rclcpp::QoS(1).reliable()
     );
 
+    // Publish initial autonomy state once so subscribers see the default value
+    if (m_autonomyPub) {
+        std_msgs::msg::Bool init_msg;
+        init_msg.data = m_isAutonomous.load();
+        m_autonomyPub->publish(init_msg);
+        spdlog::info("Published initial is_autonomous = {}", init_msg.data ? "true" : "false");
+    }
+
     spdlog::info("ROS2 telemetry subscription and config publisher created");
 }
 

@@ -69,10 +69,12 @@ BodyNode::~BodyNode() {}
 void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg) {
     float dx = msg->dpad_x;
     float dy = msg->dpad_y;
-            //RCLCPP_WARN(this->get_logger(),"The status is: %s\n", joystick_override ? "true" : "false");
+    //RCLCPP_WARN(this->get_logger(),"The status is: %s\n", joystick_override ? "true" : "false");
 
     if (is_autonomous_ && (msg->left_y == 0.0f && msg->left_x == 0.0f)) {
 
+        RCLCPP_WARN(this->get_logger(), "Is Auto");
+        shouldKillSystems.store(true);
         return;
     }
 
@@ -94,6 +96,10 @@ void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg
         body_right_flipper_->set(0.0f);
     }
     else if (msg->mode == 0) {
+
+        if(shouldKillSystems){
+            executeSystemNukeAndReset();
+        }
 
         float left_cmd  = std::clamp(msg->left_y + msg->left_x, -1.0f, 1.0f);
         float right_cmd = std::clamp(msg->left_y - msg->left_x, -1.0f, 1.0f);
@@ -233,6 +239,45 @@ void BodyNode::handleMotorConfig(const robot_msgs::msg::MotorConfig::SharedPtr m
         body_right_flipper_->set(0.0f);
     }
 
+
+
+    void BodyNode::executeSystemNukeAndReset(){
+    RCLCPP_WARN(this->get_logger(),
+        "Aborting autonomy and switching to teleop.");
+
+    // Stop autonomy immediately
+    is_autonomous_.store(false);
+    joystick_override.store(true);
+
+    // Kill mapping/localization stack
+    RCLCPP_INFO(this->get_logger(),
+        "Stopping LiDAR and SLAM processes...");
+
+    std::system("killall -9 livox_ros_driver2_node 2>/dev/null");
+    std::system("pkill -9 -f 'fastlio_pkg mapping.launch.py'");
+    std::system("killall -9 octomap_server_node 2>/dev/null");
+    std::system("killall -9 tracking_octomap_server_node 2>/dev/null");
+
+    RCLCPP_INFO(this->get_logger(),
+        "Clearing Nav2 costmaps...");
+
+    /*std::system(
+        "ros2 service call "
+        "/local_costmap/clear_entirely_local_costmap "
+        "nav2_msgs/srv/ClearEntireCostmap "
+        "'{}' > /dev/null 2>&1");
+
+    std::system(
+        "ros2 service call "
+        "/global_costmap/clear_entirely_global_costmap "
+        "nav2_msgs/srv/ClearEntireCostmap "
+        "'{}' > /dev/null 2>&1");*/
+
+    RCLCPP_INFO(this->get_logger(),
+        "Autonomy session terminated.");
+
+        shouldKillSystems.store(false);
+}
 
 int main(int argc, char * argv[]) {
     rclcpp::init(argc, argv);

@@ -3,20 +3,18 @@
 # Define the workspace directory to avoid repeating it
 WORKSPACE_DIR=~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
 
-SESSION_NAME="robot"
+SESSION_NAME="driver_station"
 
-# Nuke ONLY the old robot session if it's lingering
 tmux kill-session -t "$SESSION_NAME" 2>/dev/null
 
-# Create the fresh robot session
 tmux new-session -d -s "$SESSION_NAME" -c "$WORKSPACE_DIR"
-tmux send-keys -t "$SESSION_NAME" "source install/setup.bash && ros2 run robot_pkg body_node" Enter
+tmux send-keys -t "$SESSION_NAME" "source install/setup.bash && ros2 run control_pkg joystick_node" Enter
 
 tmux split-window -h -t "$SESSION_NAME" -c "$WORKSPACE_DIR"
-tmux send-keys -t "$SESSION_NAME" "source install/setup.bash && ros2 run robot_pkg arm_node" Enter
+tmux send-keys -t "$SESSION_NAME" "source install/setup.bash && ros2 run telemetry_ui_pkg telemetry_ui_node" Enter
 
 tmux split-window -v -t "$SESSION_NAME" -c "$WORKSPACE_DIR"
-tmux send-keys -t "$SESSION_NAME" "source install/setup.bash && ros2 run telemetry_pkg telemetry_node" Enter
+tmux send-keys -t "$SESSION_NAME" "source install/setup.bash && ros2 run joy joy_node" Enter
 
 tmux select-layout -t "$SESSION_NAME" tiled
 

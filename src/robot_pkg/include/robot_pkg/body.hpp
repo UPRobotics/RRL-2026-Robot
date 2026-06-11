@@ -21,7 +21,7 @@ private:
     void onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg);
     void onCmdVel(const geometry_msgs::msg::Twist::SharedPtr msg);
     void loadConfig();
-
+    void executeSystemNukeAndReset();
     std::unique_ptr<RosVescMotor> body_left_flipper_;
     std::unique_ptr<RosVescMotor> body_left_;
     std::unique_ptr<RosVescMotor> body_right_;
@@ -41,6 +41,7 @@ private:
     void handleMotorConfig(const robot_msgs::msg::MotorConfig::SharedPtr msg);
     std::atomic<bool> is_autonomous_{false};
     std::atomic<bool> joystick_override{false};
+    std::atomic<bool> shouldKillSystems{false};
 
 };
 
