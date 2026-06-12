@@ -3,6 +3,8 @@
 #include <chrono>
 #include <algorithm>
 #include <cstring>
+#include <fstream>
+#include <sstream>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -234,14 +236,61 @@ bool CameraStream::initDecoder(const std::string& url) {
         // 2. Cero Latencia: Obligar a FFmpeg a imitar 'sync=false'
         av_dict_set(&opts, "fflags", "nobuffer+discardcorrupt", 0);
         av_dict_set(&opts, "flags", "low_delay", 0);
-        av_dict_set(&opts, "analyzeduration", "0", 0);
-        av_dict_set(&opts, "probesize", "32", 0);
+        // Increase probe sizes for RTP/MJPEG so FFmpeg can discover codec params
+        // Default tiny probe values caused "unspecified size" for MJPEG RTP streams.
+        av_dict_set(&opts, "analyzeduration", "10000000", 0); // 10s in microseconds
+        av_dict_set(&opts, "probesize", "32M", 0); // allow large probe to collect JPEG headers
         
         spdlog::info("Camera {} connecting to Jetson via SDP: {}", m_cameraIndex + 1, url);
-        
+
         // 3. Abrir stream
         ret = avformat_open_input(&m_formatCtx, url.c_str(), nullptr, &opts);
-        av_dict_free(&opts);
+        // If SDP failed to open (often due to probe/port binding issues), try a UDP fallback
+        if (ret < 0) {
+            // Only attempt fallback for local SDP files
+            std::string lower = url;
+            std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+            if (lower.size() >= 4 && lower.substr(lower.size()-4) == ".sdp") {
+                spdlog::warn("Camera {} SDP open failed; attempting UDP fallback", m_cameraIndex + 1);
+                // parse port from SDP 'm=' line if possible, default to 5000
+                int fallback_port = 5000;
+                // simple parse: look for 'm=video <port>' in the file
+                try {
+                    std::ifstream sdpfile(url);
+                    std::string line;
+                    while (std::getline(sdpfile, line)) {
+                        if (line.rfind("m=video", 0) == 0) {
+                            std::istringstream iss(line);
+                            std::string m, proto; int p; int pt;
+                            if (iss >> m >> p >> proto >> pt) {
+                                fallback_port = p;
+                            }
+                            break;
+                        }
+                    }
+                } catch (...) {}
+
+                av_dict_free(&opts);
+                std::string udp_url = std::string("udp://0.0.0.0:") + std::to_string(fallback_port);
+                spdlog::info("Camera {} attempting UDP open: {}", m_cameraIndex + 1, udp_url);
+                // prepare opts for UDP open
+                AVDictionary* udp_opts = nullptr;
+                av_dict_set(&udp_opts, "protocol_whitelist", "file,udp,rtp", 0);
+                av_dict_set(&udp_opts, "fflags", "nobuffer+discardcorrupt", 0);
+                av_dict_set(&udp_opts, "flags", "low_delay", 0);
+                av_dict_set(&udp_opts, "analyzeduration", "10000000", 0);
+                av_dict_set(&udp_opts, "probesize", "32M", 0);
+                ret = avformat_open_input(&m_formatCtx, udp_url.c_str(), nullptr, &udp_opts);
+                av_dict_free(&udp_opts);
+                if (ret >= 0) {
+                    spdlog::info("Camera {} UDP fallback succeeded", m_cameraIndex + 1);
+                }
+            } else {
+                av_dict_free(&opts);
+            }
+        } else {
+            av_dict_free(&opts);
+        }
     }
 
     if (ret < 0) {

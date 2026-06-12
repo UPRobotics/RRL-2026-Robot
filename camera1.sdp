@@ -1,5 +1,7 @@
 v=0
-c=IN IP4 0.0.0.0
+c=IN IP4 192.168.0.90
 m=video 5000 RTP/AVP 26
 a=rtpmap:26 JPEG/90000
+a=framesize:26 1280-720
+a=framerate:30
 b=AS:40000
