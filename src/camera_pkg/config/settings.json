@@ -80,7 +80,7 @@
     {
   "enabled": true,
   "id": "camera8",
-  "ip": "127.0.0.1",  
+  "ip": "192.168.0.50",  
  "name": "DJI Action 4 (Local 1)",
   "port": 5000,
   "rotation_deg": 0,
