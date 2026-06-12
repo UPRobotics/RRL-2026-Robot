@@ -2,14 +2,25 @@
   "cameras": [
     {
       "enabled": true,
-      "id": "camera8",
-      "ip": "192.168.0.254",
+      "id": "camera1",
+      "ip": "127.0.0.1",
       "name": "DJI Action 4 (Local 1)",
       "port": 5000,
       "rotation_deg": 0,
       "source_type": "rtsp",
       "url_highres": "camera1.sdp",
       "url_lowres": "camera1.sdp"
+    },
+        {
+      "enabled": true,
+      "id": "camera2",
+      "ip": "127.0.0.1",
+      "name": "DJI Action 4 (Local 1)",
+      "port": 5001,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "camera2.sdp",
+      "url_lowres": "camera2.sdp"
     }
   ],
   "console": {
@@ -52,7 +63,7 @@
     "connection_timeout_ms": 10000,
     "default_quality": "high",
     "frame_buffer_size": 1,
-    "frame_timeout_ms": 5000,
+    "frame_timeout_ms": 80000,
     "max_reconnect_attempts": 5,
     "ping_timeout_ms": 1000,
     "reconnect_delay_ms": 2000
