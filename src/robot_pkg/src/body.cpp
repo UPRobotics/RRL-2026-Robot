@@ -15,7 +15,7 @@ BodyNode::BodyNode() : rclcpp::Node("single_motor_node") {
     body_right_flipper_ = std::make_unique<RosVescMotor>(this, "Flipper Trasero",   "/body_right_flipper/telemetry", [this]() { this->loadConfig(); }); 
 
     loadConfig();
-    VESC::setSuppressLogs(true);
+    VESC::setSuppressLogs(false);
 
     body_left_flipper_->autoConnectInit();
     body_left_->autoConnectInit();
@@ -82,7 +82,7 @@ void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg
         joystick_override.store(true);
         is_autonomous_.store(false);
     }
-            RCLCPP_WARN(this->get_logger(), "Is teleop");
+            //RCLCPP_WARN(this->get_logger(), "Is teleop");
 
     if (dx != 0.0f || dy != 0.0f) {
 

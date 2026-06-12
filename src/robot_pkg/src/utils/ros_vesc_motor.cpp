@@ -8,7 +8,7 @@ RosVescMotor::RosVescMotor(rclcpp::Node* node, const std::string& name, const st
       motor_(
           node->declare_parameter<uint8_t>(name + "_id", 0),
           node->declare_parameter<int>(name + "_baudrate", 115200),
-          node->declare_parameter<int>(name + "_timeout", 1000)),
+          node->declare_parameter<int>(name + "_timeout", 50)),
       on_port_updated_cb_(on_port_updated)
 {
     control_cb_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
@@ -78,7 +78,7 @@ void RosVescMotor::controlLoop() {
             if (motor_.autoConnect(hint)) { 
                 std::lock_guard<std::mutex> lk(settings_mutex_); 
                 settings_.port = motor_.getPortName(); 
-                if (on_port_updated_cb_) on_port_updated_cb_(); // Trigger JSON save
+              //  if (on_port_updated_cb_) on_port_updated_cb_(); // Trigger JSON save
             }
         } catch (...) {}
         return;

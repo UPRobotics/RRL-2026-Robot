@@ -287,38 +287,50 @@ void VESC::request_values() {
     send_vesc_packet(payload);
 }
 
-  std::vector<uint8_t> VESC::read_bytes() {
-      std::vector<uint8_t> buffer;
-      std::lock_guard<std::recursive_mutex> lk(port_mutex_);
-      if (!isConnected()) return buffer;
+std::vector<uint8_t> VESC::read_bytes() {
+    std::vector<uint8_t> buffer;
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
+    if (!isConnected()) return buffer;
 
-      try {
-          char byte;
-          // Scan forward until the VESC frame start byte (0x02).
-          // A single non-0x02 byte used to abort the whole read; now we skip
-          // junk bytes so one bad byte doesn't permanently desync telemetry.
-          do {
-              serial_port_->ReadByte(byte, timeout);
-          } while (static_cast<uint8_t>(byte) != 0x02);
-          buffer.push_back(static_cast<uint8_t>(byte));
-                                                                                                                                                                                                            
-          // Read length                                                                                                                                                                                  
-          serial_port_->ReadByte(byte, timeout);                                                                                                                                                            
-          uint8_t length = static_cast<uint8_t>(byte);                                                                                                                                                    
-          buffer.push_back(length);                                                                                                                                                                         
-   
-          // Read payload + 2 CRC bytes + end byte                                                                                                                                                          
-          for (int i = 0; i < length + 3; i++) {                                                                                                                                                          
-              serial_port_->ReadByte(byte, timeout);                                                                                                                                                        
-              buffer.push_back(static_cast<uint8_t>(byte));
-          }                                                                                                                                                                                                 
-      } catch (const ReadTimeout&) {                                                                                                                                                                        
-      } catch (...) {
-          running = false;                                                                                                                                                                                  
-      }                                                                                                                                                                                                   
-      return buffer;                                                                                                                                                                                        
-  }
-
+    try {
+        char byte;
+        int junk_count = 0;
+        
+        // Scan forward until the VESC frame start byte (0x02).
+        // A single non-0x02 byte used to abort the whole read; now we skip
+        // junk bytes so one bad byte doesn't permanently desync telemetry.
+        do {
+            serial_port_->ReadByte(byte, timeout);
+            junk_count++;
+            
+            // Safety break out to prevent infinite loop on broken file descriptor
+            if (junk_count > 100) {
+                running = false;
+                if (!VESC::getSuppressLogs()) {
+                    RCLCPP_WARN(logger, "Read limit exceeded without finding 0x02 frame start.");
+                }
+                return buffer; 
+            }
+        } while (static_cast<uint8_t>(byte) != 0x02);
+        
+        buffer.push_back(static_cast<uint8_t>(byte));
+                                                                                                                                                                                                        
+        // Read length                                                                                                                                                                                  
+        serial_port_->ReadByte(byte, timeout);                                                                                                                                                            
+        uint8_t length = static_cast<uint8_t>(byte);                                                                                                                                                    
+        buffer.push_back(length);                                                                                                                                                                         
+ 
+        // Read payload + 2 CRC bytes + end byte                                                                                                                                                          
+        for (int i = 0; i < length + 3; i++) {                                                                                                                                                          
+            serial_port_->ReadByte(byte, timeout);                                                                                                                                                        
+            buffer.push_back(static_cast<uint8_t>(byte));
+        }                                                                                                                                                                                                 
+    } catch (const ReadTimeout&) {                                                                                                                                                                        
+    } catch (...) {
+        running = false;                                                                                                                                                                                  
+    }                                                                                                                                                                                                   
+    return buffer;                                                                                                                                                                                        
+}
 
 bool VESC::get_telemetry(VESCData& out) {
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
