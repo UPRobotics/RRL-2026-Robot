@@ -9,18 +9,18 @@
       "rotation_deg": 0,
       "source_type": "rtsp",
       "url_highres": "camera1.sdp",
-      "url_lowres": "camera1.sdp"
+      "url_lowres": ""
     },
         {
       "enabled": true,
       "id": "camera2",
       "ip": "127.0.0.1",
       "name": "DJI Action 4 (Local 1)",
-      "port": 5001,
+      "port": 5002,
       "rotation_deg": 0,
       "source_type": "rtsp",
       "url_highres": "camera2.sdp",
-      "url_lowres": "camera2.sdp"
+      "url_lowres": ""
     }
   ],
   "console": {

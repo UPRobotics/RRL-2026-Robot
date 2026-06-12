@@ -1,5 +1,7 @@
 v=0
-m=video 5001 RTP/AVP 26
+o=- 0 0 IN IP4 127.0.0.1
+s=Camera1
 c=IN IP4 0.0.0.0
+t=0 0
+m=video 5002 RTP/AVP 26
 a=rtpmap:26 JPEG/90000
-a=fmtp:26 packetization-mode=1
