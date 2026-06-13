@@ -262,7 +262,7 @@ if (ret < 0) {
         m_formatCtx = nullptr;
     }
 
-    
+
     spdlog::error(
         "Camera {} SDP open failed: {}",
         m_cameraIndex + 1,
@@ -595,6 +595,22 @@ bool CameraStream::decodeFrame() {
     }
 
     ret = avcodec_send_packet(m_codecCtx, m_packet);
+
+    if (!m_codecCtx) {
+    spdlog::error("m_codecCtx is NULL");
+    return false;
+}
+
+if (!m_packet) {
+    spdlog::error("m_packet is NULL");
+    return false;
+}
+
+if (!m_frame) {
+    spdlog::error("m_frame is NULL");
+    return false;
+}
+
     av_packet_unref(m_packet);
     
     if (ret < 0) {
