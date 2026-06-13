@@ -11,7 +11,7 @@
       "url_highres": "camera1.sdp",
       "url_lowres": ""
     },
-        {
+    {
       "enabled": true,
       "id": "camera2",
       "ip": "127.0.0.1",
