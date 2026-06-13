@@ -226,110 +226,38 @@ bool CameraStream::initDecoder(const std::string& url) {
         ret = avformat_open_input(&m_formatCtx, url.c_str(), const_cast<AVInputFormat*>(iformat), &opts);
         av_dict_free(&opts);
 
-} else {
-        // --- CÁMARA DE RED (JETSON VIA RTP/SDP) ---
-        AVDictionary* opts = nullptr;
+}  else {
+        // --- UDP / SDP NETWORK STREAM ---
+        AVDictionary* net_opts = nullptr;
         
-        // 1. Permisos: Permitir leer el archivo SDP y abrir la red
-        av_dict_set(&opts, "protocol_whitelist", "file,udp,rtp", 0);
+        // CRITICAL: FFmpeg needs this whitelist to open the RTP sockets defined inside the SDP file
+        av_dict_set(&net_opts, "protocol_whitelist", "file,udp,rtp", 0);
         
-        // 2. Cero Latencia: Obligar a FFmpeg a imitar 'sync=false'
-        av_dict_set(&opts, "fflags", "nobuffer+discardcorrupt", 0);
-        av_dict_set(&opts, "flags", "low_delay", 0);
-        // Increase probe sizes for RTP/MJPEG so FFmpeg can discover codec params
-        // Default tiny probe values caused "unspecified size" for MJPEG RTP streams.
-        av_dict_set(&opts, "analyzeduration", "10000000", 0); // 10s in microseconds
-        av_dict_set(&opts, "probesize", "32M", 0); // allow large probe to collect JPEG headers
+        // Low latency tuning
+        av_dict_set(&net_opts, "fflags", "nobuffer", 0);
+        av_dict_set(&net_opts, "flags", "low_delay", 0);
         
-        spdlog::info("Camera {} connecting to Jetson via SDP: {}", m_cameraIndex + 1, url);
+        // Give FFmpeg just enough time to grab the first H.264 keyframe
+        av_dict_set(&net_opts, "analyzeduration", "1000000", 0);
+        av_dict_set(&net_opts, "probesize", "65536", 0);
 
-        // 3. Abrir stream
-        ret = avformat_open_input(&m_formatCtx, url.c_str(), nullptr, &opts);
-
-// If SDP failed to open (often due to probe/port binding issues), try a UDP fallback
-if (ret < 0) {
-
- char errBuf[AV_ERROR_MAX_STRING_SIZE];
-    av_strerror(ret, errBuf, sizeof(errBuf));
-
-
-     if (m_formatCtx) {
-        avformat_close_input(&m_formatCtx);
-    }
-
-    if (m_formatCtx) {
-        avformat_free_context(m_formatCtx);
-        m_formatCtx = nullptr;
-    }
-
-
-    spdlog::error(
-        "Camera {} SDP open failed: {}",
-        m_cameraIndex + 1,
-        errBuf
-    );
-
-
-    if (m_formatCtx != nullptr) {
-        avformat_close_input(&m_formatCtx); 
-    }
-
-    // Only attempt fallback for local SDP files
-    std::string lower = url;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-    if (lower.size() >= 4 && lower.substr(lower.size()-4) == ".sdp") {
-        spdlog::warn("Camera {} SDP open failed; attempting UDP fallback", m_cameraIndex + 1);
-        // parse port from SDP 'm=' line if possible, default to 5000
-        int fallback_port = 5000;
-        // simple parse: look for 'm=video <port>' in the file
-        try {
-            std::ifstream sdpfile(url);
-            std::string line;
-            while (std::getline(sdpfile, line)) {
-                if (line.rfind("m=video", 0) == 0) {
-                    std::istringstream iss(line);
-                    std::string m, proto; int p; int pt;
-                    if (iss >> m >> p >> proto >> pt) {
-                        fallback_port = p;
-                    }
-                    break;
-                }
-            }
-        } catch (...) {}
-
-        av_dict_free(&opts);
-        std::string udp_url = std::string("udp://0.0.0.0:") + std::to_string(fallback_port);
-        spdlog::info("Camera {} attempting UDP open: {}", m_cameraIndex + 1, udp_url);
+        spdlog::info("Camera {} opening network/SDP stream: {}", m_cameraIndex + 1, url);
         
-        // prepare opts for UDP open
-        AVDictionary* udp_opts = nullptr;
-
-av_dict_set(&udp_opts, "protocol_whitelist", "file,udp,rtp", 0);
-
-av_dict_set(&udp_opts, "buffer_size", "8388608", 0);
-
-av_dict_set(&udp_opts, "fflags", "discardcorrupt", 0);
-
-av_dict_set(&udp_opts, "flags", "low_delay", 0);
-
-av_dict_set(&udp_opts, "analyzeduration", "100000", 0);
-
-        av_dict_set(&udp_opts, "probesize", "32M", 0);
-        
-        // 2. ATTEMPT UDP FALLBACK WITH CLEAN CONTEXT
-        ret = avformat_open_input(&m_formatCtx, udp_url.c_str(), nullptr, &udp_opts);
-        
-        av_dict_free(&udp_opts);
-        if (ret >= 0) {
-            spdlog::info("Camera {} UDP fallback succeeded", m_cameraIndex + 1);
+        // Explicitly tell FFmpeg to expect an SDP format if the file extension matches
+        const AVInputFormat* in_fmt = nullptr;
+        if (url.find(".sdp") != std::string::npos) {
+            in_fmt = av_find_input_format("sdp");
         }
-    } else {
-        av_dict_free(&opts);
+
+        // Open the stream with the correct whitelist permissions
+        ret = avformat_open_input(&m_formatCtx, url.c_str(), const_cast<AVInputFormat*>(in_fmt), &net_opts);
+        
+        av_dict_free(&net_opts);
+        
+        // We removed the UDP fallback block here. If the SDP fails to open, 
+        // it's better to let it fail so you see the real error instead of 
+        // falling back to a corrupted raw UDP stream!
     }
-} else {
-    av_dict_free(&opts);
-}
-}
 
     if (ret < 0) {
         char errBuf[AV_ERROR_MAX_STRING_SIZE];
@@ -340,8 +268,8 @@ av_dict_set(&udp_opts, "analyzeduration", "100000", 0);
         return false;
     }
     
-    m_formatCtx->max_analyze_duration = 0;
-    m_formatCtx->fps_probe_size = 0;
+ //   m_formatCtx->max_analyze_duration = 0;
+   // m_formatCtx->fps_probe_size = 0;
     
     // For local v4l2 devices we avoid calling avformat_find_stream_info
     // because it may probe/dispatch into codec paths that can crash on
@@ -379,7 +307,7 @@ av_dict_set(&udp_opts, "analyzeduration", "100000", 0);
 
     // --- CRITICAL HARDWARE VALIDATION FIX ---
     // Check if CUDA is physically viable BEFORE choosing a hardware codec string
-    if (m_decodeMode == DecodeMode::GPU && !is_v4l2) {
+    if (false) {
         AVBufferRef* test_hw_ctx = nullptr;
         if (av_hwdevice_ctx_create(&test_hw_ctx, AV_HWDEVICE_TYPE_CUDA, nullptr, nullptr, 0) < 0) {
             spdlog::warn("Camera {} CUDA hardware unavailable (No NVIDIA GPU detected). Falling back to CPU.", m_cameraIndex + 1);
@@ -413,8 +341,14 @@ av_dict_set(&udp_opts, "analyzeduration", "100000", 0);
 
     // Fall back to native software CPU codec if no hardware path was activated
     if (!codec) {
-        codec = avcodec_find_decoder(cid);
-    }
+
+            codec = avcodec_find_decoder(cid);
+
+spdlog::info(
+    "Codec id={} decoder={}",
+    cid,
+    codec ? codec->name : "NULL"
+);    }
 
     if (!codec) {
         spdlog::error("Camera {} unsupported codec type", m_cameraIndex + 1);
@@ -449,16 +383,20 @@ av_dict_set(&udp_opts, "analyzeduration", "100000", 0);
         m_codecCtx->get_format = get_hw_format;
         m_codecCtx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
     } else {
-        m_codecCtx->get_format = nullptr; // Ensure standard software lookup handles formatting
+     //   m_codecCtx->get_format = nullptr; // Ensure standard software lookup handles formatting
     }
 
     m_codecCtx->flags |= AV_CODEC_FLAG_LOW_DELAY;
-    m_codecCtx->flags |= AV_CODEC_FLAG_OUTPUT_CORRUPT;
+   // m_codecCtx->flags |= AV_CODEC_FLAG_OUTPUT_CORRUPT;
     m_codecCtx->flags2 |= AV_CODEC_FLAG2_FAST;
     m_codecCtx->thread_count = 1; 
     m_codecCtx->delay = 0;
-    
+    m_codecCtx->error_concealment = 3;
     ret = avcodec_open2(m_codecCtx, codec, nullptr);
+    spdlog::info(
+    "Opened decoder: {}",
+    codec->name
+);
     if (ret < 0) {
         spdlog::error("Camera {} failed to open codec structure", m_cameraIndex + 1);
         avcodec_free_context(&m_codecCtx);
@@ -539,6 +477,16 @@ bool CameraStream::decodeFrame() {
     }
 
     int ret = av_read_frame(m_formatCtx, m_packet);
+
+    if (ret >= 0) {
+    spdlog::error(
+        "READ: packet={} data={} size={}",
+        (void*)m_packet,
+        (void*)m_packet->data,
+        m_packet->size
+    );
+}
+
     if (ret < 0) {
         if (ret == AVERROR_EOF) {
             // Stream ended - trigger reconnect
@@ -594,20 +542,26 @@ bool CameraStream::decodeFrame() {
         return ok;
     }
 
-    ret = avcodec_send_packet(m_codecCtx, m_packet);
+    spdlog::error(
+    "DEBUG: codecCtx={} packet={} data={} size={} stream={}",
+    (void*)m_codecCtx,
+    (void*)m_packet,
+    (m_packet ? (void*)m_packet->data : nullptr),
+    (m_packet ? m_packet->size : -1),
+    (m_packet ? m_packet->stream_index : -1)
+);
+
+ret = avcodec_send_packet(m_codecCtx, m_packet);
 
     if (!m_codecCtx) {
-    spdlog::error("m_codecCtx is NULL");
     return false;
 }
 
 if (!m_packet) {
-    spdlog::error("m_packet is NULL");
     return false;
 }
 
 if (!m_frame) {
-    spdlog::error("m_frame is NULL");
     return false;
 }
 
@@ -681,8 +635,8 @@ if (!m_frame) {
     return true;
 }
 bool CameraStream::updateTexture(AVFrame* frame) {
-    if (!frame || frame->width == 0 || frame->height == 0) {
-        spdlog::warn("Camera {} updateTexture: invalid frame", m_cameraIndex + 1);
+if (!frame || frame->width == 0 || frame->height == 0 || (frame->flags & AV_FRAME_FLAG_CORRUPT)) {
+            spdlog::warn("Camera {} updateTexture: invalid frame", m_cameraIndex + 1);
         return false;
     }
     
@@ -697,6 +651,14 @@ bool CameraStream::updateTexture(AVFrame* frame) {
     
     const AVPixelFormat targetFormat = AV_PIX_FMT_BGRA;
     
+    spdlog::error(
+    "srcFormat={} linesizes={} {} {}",
+    av_get_pix_fmt_name(srcFormat),
+    frame->linesize[0],
+    frame->linesize[1],
+    frame->linesize[2]
+);
+
     if (!m_swsCtx) {
         m_swsCtx = sws_getContext(
             frame->width, frame->height, srcFormat,
