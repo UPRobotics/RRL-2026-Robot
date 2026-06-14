@@ -3,24 +3,79 @@
     {
       "enabled": true,
       "id": "camera1",
-      "ip": "127.0.0.1",
-      "name": "DJI Action 4 (Local 1)",
-      "port": 5000,
-      "rotation_deg": 0,
+      "ip": "192.168.0.200",
+      "name": "Camera 1",
+      "port": 554,
+      "rotation_deg": 90,
       "source_type": "rtsp",
-      "url_highres": "camera1.sdp",
-      "url_lowres": ""
+      "url_highres": "rtsp://192.168.0.200:554/stream1",
+      "url_lowres": "rtsp://192.168.0.200:554/stream2"
     },
     {
       "enabled": true,
       "id": "camera2",
-      "ip": "127.0.0.1",
-      "name": "DJI Action 4 (Local 1)",
-      "port": 5002,
+      "ip": "192.168.0.201",
+      "name": "Camera 2",
+      "port": 554,
       "rotation_deg": 0,
       "source_type": "rtsp",
-      "url_highres": "camera2.sdp",
-      "url_lowres": ""
+      "url_highres": "rtsp://192.168.0.201:554/stream1",
+      "url_lowres": "rtsp://192.168.0.201:554/stream2"
+    },
+    {
+      "enabled": true,
+      "id": "camera3",
+      "ip": "192.168.0.202",
+      "name": "Camera 3",
+      "port": 554,
+      "rotation_deg": 180,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://192.168.0.202:554/stream1",
+      "url_lowres": "rtsp://192.168.0.202:554/stream2"
+    },
+    {
+      "enabled": true,
+      "id": "camera4",
+      "ip": "192.168.0.203",
+      "name": "Camera 4",
+      "port": 554,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://192.168.0.203:554/stream1",
+      "url_lowres": "rtsp://192.168.0.203:554/stream2"
+    },
+    {
+      "enabled": true,
+      "id": "camera5",
+      "ip": "192.168.0.204",
+      "name": "Camera 5",
+      "port": 554,
+      "rotation_deg": 90,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://admin:admin@192.168.0.204:554/profile0",
+      "url_lowres": "rtsp://admin:admin@192.168.0.204:554/profile1"
+    },
+    {
+      "enabled": true,
+      "id": "camera6",
+      "ip": "192.168.0.205",
+      "name": "Camera 6",
+      "port": 554,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://admin:admin@192.168.0.205:554/profile0",
+      "url_lowres": "rtsp://admin:admin@192.168.0.205:554/profile1"
+    },
+    {
+      "enabled": true,
+      "id": "camera7",
+      "ip": "192.168.0.206",
+      "name": "Camera 7",
+      "port": 554,
+      "rotation_deg": 0,
+      "source_type": "rtsp",
+      "url_highres": "rtsp://admin:admin@192.168.0.206:554/profile0",
+      "url_lowres": "rtsp://admin:admin@192.168.0.206:554/profile1"
     }
   ],
   "console": {
@@ -63,7 +118,7 @@
     "connection_timeout_ms": 10000,
     "default_quality": "high",
     "frame_buffer_size": 1,
-    "frame_timeout_ms": 80000,
+    "frame_timeout_ms": 5000,
     "max_reconnect_attempts": 5,
     "ping_timeout_ms": 1000,
     "reconnect_delay_ms": 2000

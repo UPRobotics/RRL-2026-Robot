@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>telemetry_ui_pkg</name>
+  <version>1.0.0</version>
+  <description>ROS2 telemetry dashboard UI</description>
+  <maintainer email="todo@todo.com">rrl</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>robot_msgs</depend>
+
+  <build_depend>libsdl2-dev</build_depend>
+  <build_depend>libsdl2-ttf-dev</build_depend>
+  <build_depend>libspdlog-dev</build_depend>
+
+  <exec_depend>libsdl2-2.0-0</exec_depend>
+  <exec_depend>libsdl2-ttf-2.0-0</exec_depend>
+  <exec_depend>libspdlog-dev</exec_depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

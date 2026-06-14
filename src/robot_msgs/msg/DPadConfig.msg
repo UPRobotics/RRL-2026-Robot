@@ -1,0 +1,2 @@
+float32 rpm_limit
+float32 duty_cycle_limit

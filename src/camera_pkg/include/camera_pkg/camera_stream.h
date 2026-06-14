@@ -116,11 +116,6 @@ private:
      * @brief Decode a single frame
      */
     bool decodeFrame();
-
-    /**
-     * @brief Fallback MJPEG decoder using libjpeg for v4l2 devices
-     */
-    bool decodeMJPEGPacketWithLibjpeg();
     
     /**
      * @brief Update the SDL texture with decoded frame
