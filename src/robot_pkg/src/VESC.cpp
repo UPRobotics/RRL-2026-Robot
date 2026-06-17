@@ -12,6 +12,26 @@ std::mutex VESC::scan_mutex_;
 std::atomic<bool> VESC::s_suppress_logs_{false};
 
 
+static void safe_reset_port(std::unique_ptr<LibSerial::SerialPort>& port, bool force_leak = false) {
+    if (!port) return;
+    
+    bool io_error_occurred = force_leak;
+    try {
+        if (port->IsOpen()) {
+            port->Close(); 
+        }
+    } catch (...) {
+        io_error_occurred = true; // The underlying OS file descriptor is dead
+    }
+
+    // If the USB is yanked, destroying the object causes LibSerial to throw
+    // a fatal exception out of its destructor. We MUST leak the memory instead.
+    if (io_error_occurred) {
+        port.release(); 
+    } else {
+        try { port.reset(); } catch (...) { port.release(); }
+    }
+}
 
 VESC::VESC(uint8_t id, int baud, int to) : motor_id(id), baudrate(baud), timeout(to),logger(rclcpp::get_logger("VESC")) {
         serial_port_ = std::make_unique<SerialPort>();
@@ -20,10 +40,7 @@ VESC::VESC(uint8_t id, int baud, int to) : motor_id(id), baudrate(baud), timeout
 VESC::~VESC() {
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
     disconnect();
-    if (serial_port_) {
-        try { serial_port_->Close(); } catch(...) {}
-        serial_port_.reset();
-    }
+    safe_reset_port(serial_port_);
 }
 
 void VESC::setupPort() {
@@ -80,12 +97,16 @@ bool VESC::isConnected(){
 
 std::vector<std::string> scanPorts(){
     std::vector<std::string> ports;
-    for(auto const& entry : std::filesystem::directory_iterator("/dev")){
-        std::string name = entry.path().string();
+    try {
+        for(auto const& entry : std::filesystem::directory_iterator("/dev")){
+            std::string name = entry.path().string();
 
-        if(name.find("ttyACM") != std::string::npos){
-            ports.push_back(name);
+            if(name.find("ttyACM") != std::string::npos){
+                ports.push_back(name);
+            }
         }
+    } catch (const std::exception&) {
+        // Catch filesystem runtime_errors if /dev unmounts during iteration
     }
     return ports;
 }
@@ -95,11 +116,6 @@ void VESC::setId(uint8_t id) {
     motor_id = id;
 }
 
-static void safe_reset_port(std::unique_ptr<LibSerial::SerialPort>& port) {
-    if (!port) return;
-    try { port->Close(); } catch (...) {}
-    try { port.reset(); } catch (...) { port.release(); }
-}
 
 bool VESC::tryConnectToPort(const std::string& port) {
     std::lock_guard<std::recursive_mutex> lk(port_mutex_);
@@ -127,18 +143,18 @@ bool VESC::tryConnectToPort(const std::string& port) {
                 return true;
             }
         }
-        running = false;
-        safe_reset_port(serial_port_);
+running = false;
+        safe_reset_port(serial_port_); // Normal clean up if it just didn't find the ID
         return false;
     } catch (const std::exception& e) {
         if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Port %s failed for motor_id=%u: %s", port.c_str(), motor_id, e.what());
         running = false;
-        safe_reset_port(serial_port_);
+        safe_reset_port(serial_port_, true); // FORCE LEAK! Port is physically dead.
         return false;
     } catch (...) {
         if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Port %s failed for motor_id=%u: unknown error", port.c_str(), motor_id);
         running = false;
-        safe_reset_port(serial_port_);
+        safe_reset_port(serial_port_, true); // FORCE LEAK!
         return false;
     }
 }
@@ -233,6 +249,27 @@ void VESC::send_vesc_packet(const std::vector<uint8_t> &payload) {
         if (!VESC::getSuppressLogs()) RCLCPP_WARN(logger, "Write failed (unknown error)");
         running = false;
         try { if(serial_port_) serial_port_->Close(); } catch(...) {}
+    }
+}
+
+void VESC::set_position(float degrees) {
+    std::lock_guard<std::recursive_mutex> lk(port_mutex_);
+    if (!isConnected()) return;
+
+    try {
+        // VESC expects the angle multiplied by 1,000,000
+        int32_t scaled = static_cast<int32_t>(degrees * 1000000.0f);
+        std::vector<uint8_t> payload;
+        payload.push_back(9); // COMM_SET_POS
+        payload.push_back(static_cast<uint8_t>((scaled >> 24) & 0xFF));
+        payload.push_back(static_cast<uint8_t>((scaled >> 16) & 0xFF));
+        payload.push_back(static_cast<uint8_t>((scaled >>  8) & 0xFF));
+        payload.push_back(static_cast<uint8_t>( scaled        & 0xFF));
+        send_vesc_packet(payload);
+    } catch (...) {
+        if (!VESC::getSuppressLogs()) RCLCPP_ERROR(logger, "set_position unknown error");
+        running = false;
+        try { if (serial_port_) serial_port_->Close(); } catch (...) {}
     }
 }
 

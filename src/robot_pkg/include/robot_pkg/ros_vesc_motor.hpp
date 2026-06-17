@@ -31,6 +31,8 @@ public:
     void applySettings(const MotorSettings& new_settings);
     MotorSettings getSettings();
     bool autoConnectInit();
+    void setControlMode(uint8_t mode);
+    void setPositionTarget(float degrees);
 
 private:
     void controlLoop();

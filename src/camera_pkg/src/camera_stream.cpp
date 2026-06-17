@@ -216,14 +216,18 @@ bool CameraStream::initDecoder(const std::string& url) {
         }
 
         AVDictionary* opts = nullptr;
-        av_dict_set(&opts, "input_format", "mjpeg", 0);
-        av_dict_set(&opts, "video_size", "1920x1080", 0);
-        av_dict_set(&opts, "framerate", "30", 0);
-        av_dict_set(&opts, "fflags", "nobuffer+flush_packets", 0);
+av_dict_set(&opts, "fflags", "nobuffer", 0);
         av_dict_set(&opts, "flags", "low_delay", 0);
+        av_dict_set(&opts, "analyzeduration", "10000000", 0); 
+        av_dict_set(&opts, "probesize", "32M", 0);
+        
+        spdlog::info("Camera {} connecting to Jetson via SDP: {}", m_cameraIndex + 1, url);
 
-        spdlog::info("Camera {} capturing local hardware device: {}", m_cameraIndex + 1, url);
-        ret = avformat_open_input(&m_formatCtx, url.c_str(), const_cast<AVInputFormat*>(iformat), &opts);
+        // --- ADD THIS SINGLE LINE HERE ---
+        av_opt_set(m_formatCtx, "protocol_whitelist", "file,udp,rtp,rtcp,crypto,data", 0);
+
+        // 3. Abrir stream
+        ret = avformat_open_input(&m_formatCtx, url.c_str(), nullptr, &opts);
         av_dict_free(&opts);
 
 }  else {

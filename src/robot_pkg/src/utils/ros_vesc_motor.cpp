@@ -66,8 +66,7 @@ void RosVescMotor::controlLoop() {
         std::lock_guard<std::mutex> lk(settings_mutex_);
         if (!settings_.enabled) return;
     }
-
-    // AUTO-RECONNECT SAFETY NET
+// AUTO-RECONNECT SAFETY NET
     if (!motor_.isConnected()) {
         RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
                              "[%s] Disconnected, attempting auto-reconnect...", name_.c_str());
@@ -75,11 +74,15 @@ void RosVescMotor::controlLoop() {
         { std::lock_guard<std::mutex> lk(settings_mutex_); hint = settings_.port; }
         
         try {
+            // Wait 1 second before trying to reconnect to let ghost USB ports clear
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            
             if (motor_.autoConnect(hint)) { 
                 std::lock_guard<std::mutex> lk(settings_mutex_); 
                 settings_.port = motor_.getPortName(); 
-              //  if (on_port_updated_cb_) on_port_updated_cb_(); // Trigger JSON save
             }
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(node_->get_logger(), "Auto-connect exception: %s", e.what());
         } catch (...) {}
         return;
     }
@@ -94,14 +97,35 @@ void RosVescMotor::controlLoop() {
         c_mode = settings_.control_mode; // 0 = RPM, 1 = Duty
     }
 
-    float cmd = std::clamp(current_cmd_.load(std::memory_order_relaxed), -1.0f, 1.0f);
+    float cmd = current_cmd_.load(std::memory_order_relaxed);
     float sign = inv ? -1.0f : 1.0f;
 
-    if (c_mode == 1) {
-        motor_.set_duty_cycle(cmd * duty_lim * sign);
+    if (c_mode == 2) {
+        // MODE 2: POSITION (Do NOT clamp, we need exact degrees)
+        motor_.set_position(cmd * sign);
+            RCLCPP_ERROR(node_->get_logger(), "degres exception: %f",cmd );
+
     } else {
-        motor_.set_rpm(static_cast<int32_t>(cmd * rpm_lim * sign));
+        // MODE 0 or 1: RPM/Duty Cycle (Clamp safely to -1.0 to 1.0)
+        cmd = std::clamp(cmd, -1.0f, 1.0f);
+        
+        if (c_mode == 1) {
+            motor_.set_duty_cycle(cmd * duty_lim * sign);
+        } else {
+            motor_.set_rpm(static_cast<int32_t>(cmd * rpm_lim * sign));
+        }
     }
+}
+
+void RosVescMotor::setControlMode(uint8_t mode) {
+    std::lock_guard<std::mutex> lock(settings_mutex_);
+    settings_.control_mode = mode;
+}
+
+void RosVescMotor::setPositionTarget(float degrees) {
+    setControlMode(2); // Force position mode
+    current_cmd_.store(degrees, std::memory_order_relaxed);
+    use_custom_limits_ = false;
 }
 
 void RosVescMotor::telemetryLoop() {

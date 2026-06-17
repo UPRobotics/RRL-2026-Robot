@@ -69,55 +69,52 @@ BodyNode::~BodyNode() {}
 void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg) {
     float dx = msg->dpad_x;
     float dy = msg->dpad_y;
-    //RCLCPP_WARN(this->get_logger(),"The status is: %s\n", joystick_override ? "true" : "false");
 
+    // --- 1. Autonomy Override Checks ---
     if (is_autonomous_ && (msg->left_y == 0.0f && msg->left_x == 0.0f)) {
-
         RCLCPP_WARN(this->get_logger(), "Is Auto");
         shouldKillSystems.store(true);
         return;
     }
 
-    if(msg->left_y != 0.0f || msg->left_x != 0.0f){
+    if (msg->left_y != 0.0f || msg->left_x != 0.0f) {
         joystick_override.store(true);
         is_autonomous_.store(false);
     }
-            //RCLCPP_WARN(this->get_logger(), "Is teleop");
 
+    if (shouldKillSystems) {
+        executeSystemNukeAndReset();
+    }
+
+    // --- 2. Track Control (Always evaluates regardless of mode) ---
     if (dx != 0.0f || dy != 0.0f) {
-
+        // D-Pad Control
         float left_cmd  = std::clamp(dy + dx, -1.0f, 1.0f);
         float right_cmd = std::clamp(dy - dx, -1.0f, 1.0f);
 
         body_left_->setWithCustomLimits(left_cmd, 1500.0f, 0.30f);
         body_right_->setWithCustomLimits(right_cmd, 1500.0f, 0.30f);
-
-        body_left_flipper_->set(0.0f);
-        body_right_flipper_->set(0.0f);
-    }
-    else if (msg->mode == 0) {
-
-        if(shouldKillSystems){
-            executeSystemNukeAndReset();
-        }
-
+    } else {
+        // Joystick Control
         float left_cmd  = std::clamp(msg->left_y + msg->left_x, -1.0f, 1.0f);
         float right_cmd = std::clamp(msg->left_y - msg->left_x, -1.0f, 1.0f);
 
-
         body_left_->set(left_cmd);
         body_right_->set(right_cmd);
-
-
-        body_left_flipper_->set(msg->right_y);
-        body_right_flipper_->set(msg->right_x);
     }
 
-    else {
-        body_left_->set(0.0f);
-        body_right_->set(0.0f);
-        body_left_flipper_->set(0.0f);
-        body_right_flipper_->set(0.0f);
+    // --- 3. Flipper Control ---
+    if (msg->mode == 1) { 
+        // Mode 1: Left flipper automatically holds 45 degrees
+        body_right_flipper_->setPositionTarget(45.0f);
+
+    } else {
+        // Normal Teleop Mode: Put left flipper back to normal (Mode 0 or 1)
+        body_right_flipper_->setControlMode(1); // Set to your default duty/rpm mode
+        
+        // Drive both manually using joysticks
+        body_left_flipper_->set(msg->right_y);
+        body_right_flipper_->set(msg->right_x);
     }
 }
 

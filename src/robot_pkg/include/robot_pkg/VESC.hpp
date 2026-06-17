@@ -73,6 +73,7 @@ class VESC{
         void set_rpm(int32_t rpm);
         void set_duty_cycle(float duty);   // duty in [-1.0, 1.0]
         void request_values();
+        void set_position(float degrees);
         std::vector<uint8_t> read_bytes();
         bool get_telemetry(VESCData &out);
 
