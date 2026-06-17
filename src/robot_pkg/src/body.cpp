@@ -106,7 +106,7 @@ void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg
     // --- 3. Flipper Control ---
     if (msg->mode == 1) { 
         // Mode 1: Left flipper automatically holds 45 degrees
-        body_right_flipper_->setPositionTarget(45.0f);
+      //  body_right_flipper_->setPositionTarget(45.0f);
 
     } else {
         // Normal Teleop Mode: Put left flipper back to normal (Mode 0 or 1)

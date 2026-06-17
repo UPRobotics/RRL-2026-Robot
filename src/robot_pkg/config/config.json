@@ -10,7 +10,7 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.1,
-      "enabled": true,
+      "enabled": false,
       "id": 6,
       "inverted": true,
       "name": "Flipper Trasero",
@@ -20,7 +20,7 @@
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.30000001192092896,
-      "enabled": false,
+      "enabled": true,
       "id": 3,
       "inverted": true,
       "name": "Track Izquierdo",
