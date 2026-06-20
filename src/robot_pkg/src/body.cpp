@@ -71,19 +71,20 @@ void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg
     float dy = msg->dpad_y;
 
     // --- 1. Autonomy Override Checks ---
-    if (is_autonomous_ && (msg->left_y == 0.0f && msg->left_x == 0.0f)) {
-        RCLCPP_WARN(this->get_logger(), "Is Auto");
+    if (is_autonomous_ && !(msg->left_y == 0.0f && msg->left_x == 0.0f)) {
+        RCLCPP_WARN(this->get_logger(), "Joystick override");
         shouldKillSystems.store(true);
-        return;
-    }
-
-    if (msg->left_y != 0.0f || msg->left_x != 0.0f) {
         joystick_override.store(true);
         is_autonomous_.store(false);
+        return;
     }
 
     if (shouldKillSystems) {
         executeSystemNukeAndReset();
+    }
+
+    if (is_autonomous_) {
+        return; 
     }
 
     // --- 2. Track Control (Always evaluates regardless of mode) ---
@@ -106,8 +107,8 @@ void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg
     // --- 3. Flipper Control ---
     if (msg->mode == 1) { 
         // Mode 1: Left flipper automatically holds 45 degrees
-      //  body_right_flipper_->setPositionTarget(45.0f);
-
+        //body_right_flipper_->setPositionTarget(45.0f);
+        return;
     } else {
         // Normal Teleop Mode: Put left flipper back to normal (Mode 0 or 1)
         body_right_flipper_->setControlMode(1); // Set to your default duty/rpm mode
@@ -236,44 +237,98 @@ void BodyNode::handleMotorConfig(const robot_msgs::msg::MotorConfig::SharedPtr m
         body_right_flipper_->set(0.0f);
     }
 
+void BodyNode::executeSystemNukeAndReset(){
 
+    RCLCPP_WARN(this->get_logger(), "Aborting autonomy and switching to teleop.");
 
-    void BodyNode::executeSystemNukeAndReset(){
-    RCLCPP_WARN(this->get_logger(),
-        "Aborting autonomy and switching to teleop.");
-
-    // Stop autonomy immediately
     is_autonomous_.store(false);
     joystick_override.store(true);
 
-    // Kill mapping/localization stack
+    shouldKillSystems.store(false);
+
+    RCLCPP_INFO(this->get_logger(), "Starting LiDAR stack teardown in background...");
+
+    std::thread([this](){
+
+        auto start = this->now();
+
+        std::system("killall -2 livox_ros_driver2_node > /dev/null 2>&1");
+
+        std::system("pkill -2 -f fastlio > /dev/null 2>&1");
+
+        std::system("killall -2 octomap_server_node > /dev/null 2>&1");
+
+        std::system("killall -2 tracking_octomap_server_node > /dev/null 2>&1");
+
+        // Give them a chance to exit
+
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+
+
+
+        // Safety net
+
+        std::system("killall -9 livox_ros_driver2_node > /dev/null 2>&1");
+
+        std::system("pkill -9 -f fastlio > /dev/null 2>&1");
+
+        std::system("killall -9 octomap_server_node > /dev/null 2>&1");
+
+        std::system("killall -9 tracking_octomap_server_node > /dev/null 2>&1");
+
+
+
+        // Small buffer to ensure processes are actually gone
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+
+
+        RCLCPP_INFO(this->get_logger(),
+
+            "LiDAR stack terminated. Clearing costmaps.");
+
+
+
+        std::system(
+
+            "ros2 service call "
+
+            "/local_costmap/clear_entirely_local_costmap "
+
+            "nav2_msgs/srv/ClearEntireCostmap "
+
+            "\"{}\" > /dev/null 2>&1");
+
+
+
+        std::system(
+
+            "ros2 service call "
+
+            "/global_costmap/clear_entirely_global_costmap "
+
+            "nav2_msgs/srv/ClearEntireCostmap "
+
+            "\"{}\" > /dev/null 2>&1");
+
+
+        RCLCPP_INFO(this->get_logger(),
+
+            "Autonomy teardown complete in %.2f sec.",
+
+            (this->now() - start).seconds());
+
+
+
+    }).detach();
+
+
+
     RCLCPP_INFO(this->get_logger(),
-        "Stopping LiDAR and SLAM processes...");
 
-    std::system("killall -9 livox_ros_driver2_node 2>/dev/null");
-    std::system("pkill -9 -f 'fastlio_pkg mapping.launch.py'");
-    std::system("killall -9 octomap_server_node 2>/dev/null");
-    std::system("killall -9 tracking_octomap_server_node 2>/dev/null");
+        "Teleop active. Cleanup continuing in background.");
 
-    RCLCPP_INFO(this->get_logger(),
-        "Clearing Nav2 costmaps...");
-
-    /*std::system(
-        "ros2 service call "
-        "/local_costmap/clear_entirely_local_costmap "
-        "nav2_msgs/srv/ClearEntireCostmap "
-        "'{}' > /dev/null 2>&1");
-
-    std::system(
-        "ros2 service call "
-        "/global_costmap/clear_entirely_global_costmap "
-        "nav2_msgs/srv/ClearEntireCostmap "
-        "'{}' > /dev/null 2>&1");*/
-
-    RCLCPP_INFO(this->get_logger(),
-        "Autonomy session terminated.");
-
-        shouldKillSystems.store(false);
 }
 
 int main(int argc, char * argv[]) {

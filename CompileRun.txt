@@ -11,7 +11,7 @@ RUn this one per terminal
 
 cd ~/Desktop/Programming_stuff/Cplusplus/RRL-2026-Robot
 source install/setup.bash
-
+chmod +x run_robot.sh
 or
 
 cd ~/Desktop/Codigos/RRL-2026-Robot

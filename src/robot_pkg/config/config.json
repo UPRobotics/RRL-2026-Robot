@@ -9,9 +9,9 @@
   "motors": [
     {
       "control_mode": 1,
-      "duty_cycle_limit": 0.1,
-      "enabled": false,
-      "id": 6,
+      "duty_cycle_limit": 0.3,
+      "enabled": true,
+      "id": 1,
       "inverted": true,
       "name": "Flipper Trasero",
       "port": "/dev/ttyACM3",
@@ -21,7 +21,7 @@
       "control_mode": 0,
       "duty_cycle_limit": 0.30000001192092896,
       "enabled": true,
-      "id": 3,
+      "id": 2,
       "inverted": true,
       "name": "Track Izquierdo",
       "port": "/dev/ttyACM0",
@@ -30,8 +30,8 @@
     {
       "control_mode": 0,
       "duty_cycle_limit": 0.30000001192092896,
-      "enabled": false,
-      "id": 1,
+      "enabled": true,
+      "id": 6,
       "inverted": true,
       "name": "Track Derecho",
       "port": "/dev/ttyACM1",
@@ -40,8 +40,8 @@
     {
       "control_mode": 1,
       "duty_cycle_limit": 0.30000001192092896,
-      "enabled": false,
-      "id": 4,
+      "enabled": true,
+      "id": 3,
       "inverted": true,
       "name": "Flipper Delantero",
       "port": "/dev/ttyACM2",
