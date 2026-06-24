@@ -1,0 +1,114 @@
+<?xml version="1.0" ?>
+<robot name="ensamble_flaca" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+<xacro:include filename="$(find ensamble_flaca_description)/urdf/materials.xacro" />
+<xacro:include filename="$(find ensamble_flaca_description)/urdf/ensamble_flaca.trans" />
+<xacro:include filename="$(find ensamble_flaca_description)/urdf/ensamble_flaca.gazebo" />
+<link name="base_link">
+  <inertial>
+    <origin xyz="0.23698348447128786 0.00012178367054380957 -0.039756074730689435" rpy="0 0 0"/>
+    <mass value="27.98886399690759"/>
+    <inertia ixx="0.363399" iyy="1.350169" izz="1.508645" ixy="-0.001419" iyz="0.000232" ixz="-0.00833"/>
+  </inertial>
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="package://ensamble_flaca_description/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="package://ensamble_flaca_description/meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+<link name="flippers1_1">
+  <inertial>
+    <origin xyz="0.08310622221294267 0.13783978661334642 1.4819839799784518e-11" rpy="0 0 0"/>
+    <mass value="19.511406753581024"/>
+    <inertia ixx="0.909151" iyy="0.343422" izz="1.222647" ixy="0.0" iyz="-5.2e-05" ixz="0.0"/>
+  </inertial>
+  <visual>
+    <origin xyz="-0.42161 0.137845 0.075155" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="package://ensamble_flaca_description/meshes/flippers1_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="-0.42161 0.137845 0.075155" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="package://ensamble_flaca_description/meshes/flippers1_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+<link name="flippers1_2">
+  <inertial>
+    <origin xyz="-0.08310622221294323 0.13783978661334642 -1.4817869153915808e-11" rpy="0 0 0"/>
+    <mass value="19.511406753581024"/>
+    <inertia ixx="0.909151" iyy="0.343422" izz="1.222647" ixy="-0.0" iyz="5.2e-05" ixz="0.0"/>
+  </inertial>
+  <visual>
+    <origin xyz="-0.04161 0.137845 0.075155" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="package://ensamble_flaca_description/meshes/flippers1_2.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="-0.04161 0.137845 0.075155" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="package://ensamble_flaca_description/meshes/flippers1_2.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+
+<link name="NEWAssay_v2_1">
+  <inertial>
+    <origin xyz="-0.027573810798244943 -0.019997657041634895 0.03881065903301395" rpy="0 0 0"/>
+    <mass value="3.0305979524360294"/>
+    <inertia ixx="0.003516" iyy="0.003608" izz="0.002954" ixy="-0.0" iyz="-0.0" ixz="3.2e-05"/>
+  </inertial>
+  <visual>
+    <origin xyz="0.004332 -0.017515 -0.025185" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="package://ensamble_flaca_description/meshes/NEWAssay_v2_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="0.004332 -0.017515 -0.025185" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="package://ensamble_flaca_description/meshes/NEWAssay_v2_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+
+
+<joint name="Base_link" type="fixed">
+  <origin xyz="-0.004332 0.017515 0.025185" rpy="0 0 0"/>
+  <parent link="base_link"/>
+  <child link="NEWAssay_v2_1"/>
+</joint>
+
+<joint name="Flipper_delantero" type="fixed">
+  <origin xyz="0.42161 -0.137845 -0.075155" rpy="0 0 0"/>
+  <parent link="base_link"/>
+  <child link="flippers1_1"/>
+</joint>
+
+<joint name="FLipper_Trasero" type="fixed">
+  <origin xyz="0.04161 -0.137845 -0.075155" rpy="0 0 0"/>
+  <parent link="base_link"/>
+  <child link="flippers1_2"/>
+</joint>
+
+
+
+</robot>

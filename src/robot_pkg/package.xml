@@ -10,11 +10,14 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclpy</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>robot_msgs</depend>
   <depend>ament_index_cpp</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
 
   <build_depend>libserial-dev</build_depend>
   <exec_depend>libserial-dev</exec_depend>

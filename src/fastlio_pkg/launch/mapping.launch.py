@@ -2,7 +2,7 @@ import os.path
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import PathJoinSubstitution, LaunchConfiguration
+from launch.substitutions import PathJoinSubstitution, LaunchConfiguration, Command
 from launch.conditions import IfCondition
 from launch_ros.actions import Node
 
@@ -46,6 +46,12 @@ def generate_launch_description():
 
     # ==================== Nodos ====================
 
+    # Cargar URDF del robot
+    robot_description_path = get_package_share_directory('ensamble_flaca_description')
+    robot_urdf_file = os.path.join(robot_description_path, 'urdf', 'ensamble_flaca.xacro')
+
+    robot_description = Command(['xacro ', robot_urdf_file])
+
     # Nodo principal de FAST_LIO
     fast_lio_node = Node(
         package='fastlio_pkg',
@@ -54,6 +60,31 @@ def generate_launch_description():
             PathJoinSubstitution([LaunchConfiguration('config_path'), LaunchConfiguration('config_file')]),
             {'use_sim_time': LaunchConfiguration('use_sim_time')}
         ],
+        output='screen'
+    )
+
+    # Robot State Publisher - publica los transforms del URDF
+    robot_state_publisher_node = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        parameters=[{
+            'robot_description': robot_description,
+            'use_sim_time': LaunchConfiguration('use_sim_time')
+        }],
+        output='screen'
+    )
+
+    # Nodo corrected_odom - publica TF odom → base_link
+    corrected_odom_node = Node(
+        package='fastlio_pkg',
+        executable='corrected_odom.py',
+        output='screen'
+    )
+
+    # Nodo auto_level - publica TF map → camera_init (nivelación basada en IMU)
+    auto_level_node = Node(
+        package='fastlio_pkg',
+        executable='auto_level.py',
         output='screen'
     )
 
@@ -93,6 +124,9 @@ def generate_launch_description():
 
     # Agregar nodos
     ld.add_action(fast_lio_node)
+    ld.add_action(robot_state_publisher_node)
+    ld.add_action(corrected_odom_node)
+    ld.add_action(auto_level_node)
     ld.add_action(rviz_node)
     ld.add_action(foxglove_bridge_node)
 

@@ -1,0 +1,6 @@
+<launch>
+  <!-- Este launch ejecuta map_saver_cli para guardar el mapa generado -->
+  <node pkg="nav2_map_server" exec="map_saver_cli" name="map_saver"
+        args="-f $(find octomap_server)/../../maps/$(env MAP_NAME default_map)"
+        output="screen" />
+</launch>

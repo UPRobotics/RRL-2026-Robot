@@ -58,6 +58,12 @@ install(DIRECTORY config/
   DESTINATION share/${PROJECT_NAME}/config
 )
 
+# Install Python scripts
+install(PROGRAMS
+  src/arm_forward_kinematics.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # ---------- BODY NODE ----------
 add_executable(body_node
   src/body.cpp

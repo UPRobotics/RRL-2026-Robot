@@ -62,7 +62,24 @@ sudo apt-get install -y -qq \
     ros-humble-joy > /dev/null
 
 ###############################################################################
-# 4. mic_pkg dependencies
+# 4. Additional ROS2 packages
+###############################################################################
+log "Installing additional ROS2 packages..."
+sudo apt-get install -y -qq \
+    ros-humble-bondcpp \
+    ros-humble-test-msgs \
+    ros-humble-behaviortree-cpp-v3 \
+    ros-humble-diagnostic-updater \
+    ros-humble-ompl \
+    ros-humble-gazebo-ros-pkgs \
+    ros-humble-xacro \
+    ros-humble-rviz2 \
+    ros-humble-robot-state-publisher \
+    ros-humble-joint-state-publisher \
+    ros-humble-joint-state-publisher-gui > /dev/null
+
+###############################################################################
+# 5. mic_pkg dependencies
 #    ALSA, SDL2, SDL2_ttf, Vosk speech recognition
 ###############################################################################
 log "Installing mic_pkg dependencies (SDL2, SDL2_ttf, ALSA)..."
@@ -111,7 +128,7 @@ if [ "${VOSK_INSTALLED}" = false ]; then
 fi
 
 ###############################################################################
-# 5. Vosk speech models
+# 6. Vosk speech models
 ###############################################################################
 MODELS_DIR="${WS_DIR}/models"
 mkdir -p "${MODELS_DIR}"
@@ -145,7 +162,7 @@ else
 fi
 
 ###############################################################################
-# 6. thermal_pkg dependencies (OpenCV)
+# 7. thermal_pkg dependencies (OpenCV)
 #    On Jetson, OpenCV is pre-installed via JetPack with CUDA support.
 #    Install the dev package just in case.
 ###############################################################################
@@ -156,13 +173,23 @@ sudo apt-get install -y -qq libopencv-dev > /dev/null || {
 }
 
 ###############################################################################
-# 7. robot_pkg dependencies (libserial for VESC communication)
+# 8. System development libraries
+###############################################################################
+log "Installing system development libraries (GraphicsMagick, xtensor, nanoflann, ceres)..."
+sudo apt-get install -y -qq \
+    libgraphicsmagick++1-dev \
+    libxtensor-dev \
+    libnanoflann-dev \
+    libceres-dev > /dev/null
+
+###############################################################################
+# 9. robot_pkg dependencies (libserial for VESC communication)
 ###############################################################################
 log "Installing robot_pkg dependencies (libserial)..."
 sudo apt-get install -y -qq libserial-dev > /dev/null
 
 ###############################################################################
-# 8. magnetometer_pkg dependencies (Python: matplotlib, tkinter, serial)
+# 10. magnetometer_pkg dependencies (Python: matplotlib, tkinter, serial)
 ###############################################################################
 log "Installing magnetometer_pkg dependencies (matplotlib, tkinter)..."
 sudo apt-get install -y -qq \
@@ -170,7 +197,7 @@ sudo apt-get install -y -qq \
     python3-tk > /dev/null
 
 ###############################################################################
-# 9. LIDAR Driver + Foxglove Bridge
+# 11. LIDAR Driver + Foxglove Bridge
 ###############################################################################
 log "Installing Livox driver and Foxglove Bridge dependencies..."
 
@@ -219,19 +246,19 @@ fi
 log "Livox + Foxglove Bridge dependencies installed for Jetson."
 
 ###############################################################################
-# 10. Python dependencies (for VESCRPMDutyCycle.py, magnetometer, test scripts)
+# 12. Python dependencies (for VESCRPMDutyCycle.py, magnetometer, test scripts)
 ###############################################################################
 log "Installing Python dependencies..."
 pip3 install --user -q pyserial
 
 ###############################################################################
-# 11. Serial port permissions
+# 13. Serial port permissions
 ###############################################################################
 log "Adding user '${USER}' to 'dialout' group for serial port access..."
 sudo usermod -aG dialout "${USER}" || warn "Could not add user to dialout group."
 
 ###############################################################################
-# 12. Initialize / update rosdep
+# 14. Initialize / update rosdep
 ###############################################################################
 log "Initializing rosdep..."
 if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
@@ -240,7 +267,7 @@ fi
 rosdep update --rosdistro=humble > /dev/null
 
 ###############################################################################
-# 13. Install remaining dependencies via rosdep
+# 15. Install remaining dependencies via rosdep
 ###############################################################################
 log "Running rosdep install for workspace..."
 cd "${WS_DIR}"
@@ -252,7 +279,7 @@ rosdep install --from-paths src --ignore-src -r -y \
     || warn "Some rosdep keys could not be resolved."
 
 ###############################################################################
-# 14. Build the workspace (excluding desktop-only packages)
+# 16. Build the workspace (excluding desktop-only packages)
 ###############################################################################
 log "Building the workspace with colcon..."
 cd "${WS_DIR}"
@@ -272,7 +299,7 @@ else
 fi
 
 ###############################################################################
-# 15. Summary
+# 17. Summary
 ###############################################################################
 echo ""
 log "============================================"

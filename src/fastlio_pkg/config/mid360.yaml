@@ -11,7 +11,7 @@
         common:
             lid_topic: "/livox/lidar"
             imu_topic: "/livox/imu"
-            time_sync_en: true
+            time_sync_en: false
             time_offset_lidar_to_imu: 0.01
 
         preprocess:

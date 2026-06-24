@@ -108,7 +108,7 @@ def start_video_streams(mapping):
             "gst-launch-1.0", "v4l2src", f"device={mapping['nav_left']}", "do-timestamp=true",
             "!", "image/jpeg,width=1280,height=720,framerate=30/1",
             "!", "rtpjpegpay", "mtu=1200",
-            "!", "udpsink", "host=127.0.0.1", "port=5004", "sync=false", "async=false"
+            "!", "udpsink", "host=172.24.27.117", "port=5004", "sync=false", "async=false"
         ]
         launch_pipeline("Nav Left (5004)", cmd)
     else: print("⚠️ Nav Left (Osmo 1) not found.")
@@ -118,7 +118,7 @@ def start_video_streams(mapping):
             "gst-launch-1.0", "v4l2src", f"device={mapping['nav_right']}", "do-timestamp=true",
             "!", "image/jpeg,width=1280,height=720,framerate=30/1",
             "!", "rtpjpegpay", "mtu=1200",
-            "!", "udpsink", "host=127.0.0.1", "port=5006", "sync=false", "async=false"
+            "!", "udpsink", "host=172.24.27.117", "port=5006", "sync=false", "async=false"
         ]
         launch_pipeline("Nav Right (5006)", cmd)
     else: print("⚠️ Nav Right (Osmo 2) not found.")
@@ -129,7 +129,7 @@ def start_video_streams(mapping):
             "!", "video/x-raw,width=1280,height=720,framerate=30/1",
             "!", "jpegenc",
             "!", "rtpjpegpay", "mtu=1200",
-            "!", "udpsink", "host=127.0.0.1", "port=5000", "sync=false", "async=false"
+            "!", "udpsink", "host=172.24.27.117", "port=5000", "sync=false", "async=false"
         ]
         launch_pipeline("AI Camera (5000)", cmd)
     else: print("⚠️ AI Camera (RealSense) not found.")

@@ -9,7 +9,7 @@ endif()
  ADD_COMPILE_OPTIONS(-std=c++17) 
  set(CMAKE_CXX_FLAGS "-std=c++17 -O3") 
   
- add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}\") 
+ add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\") 
   
  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexceptions") 
  set(CMAKE_CXX_STANDARD 17) 
@@ -119,7 +119,12 @@ ament_target_dependencies(fastlio_mapping ${dependencies})
 install(TARGETS fastlio_mapping
   DESTINATION lib/${PROJECT_NAME}
 )
-
+install(PROGRAMS
+  scripts/auto_level.py
+  scripts/corrected_odom.py
+  scripts/filter_cloud.py
+  DESTINATION lib/${PROJECT_NAME}
+)
 install(
   DIRECTORY config launch rviz
   DESTINATION share/${PROJECT_NAME}
