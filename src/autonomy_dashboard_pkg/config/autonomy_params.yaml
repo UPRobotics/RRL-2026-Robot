@@ -1,0 +1,26 @@
+autonomy_dashboard_node:
+  ros__parameters:
+    team_name: "RoboCup2026"
+    mission: "Prelim1"
+    output_dir: "/home/testrobotica/RRL-2026-Robot/maps"
+    max_mapping_time: 1200  # 20 minutos en segundos
+
+# Tópicos que monitorea
+topics:
+  cloud_registered: "/cloud_registered"
+  occupancy_grid: "/map"
+  odometry: "/odom"
+  amcl_pose: "/amcl_pose"
+  autonomy_status: "/autonomy/status"
+
+# Parámetros de visualización
+visualization:
+  map_scale: 50  # píxeles por metro
+  cloud_max_points: 50000  # downsampling
+  update_rate: 10  # Hz
+
+# Parámetros de exportación
+export:
+  ply_format: "ascii"
+  geotiff_resolution: 0.05  # metros por pixel
+  csv_format: "robocup2026"

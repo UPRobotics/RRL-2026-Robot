@@ -1,0 +1,17 @@
+# ================================================================
+# Configuración para mapping_capture.py - RoboCup 2026
+# ================================================================
+
+mapping_capture:
+  ros__parameters:
+    # NOMBRE DEL EQUIPO (sin espacios, usar guiones o guiones bajos)
+    team_name: "MyTeamName"
+    
+    # NOMBRE DE LA MISIÓN (Ejemplo: Labyrinth_Prelim1, Stairs_Semis, etc)
+    mission: "Labyrinth_Prelim1"
+    
+    # Directorio de salida
+    output_dir: "/home/testrobotica/RRL-2026-Robot/maps"
+    
+    # Tiempo en segundos antes de auto-exportar (20 minutos = 1200)
+    auto_export_time: 1200

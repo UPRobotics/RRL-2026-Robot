@@ -123,6 +123,9 @@ install(PROGRAMS
   scripts/auto_level.py
   scripts/corrected_odom.py
   scripts/filter_cloud.py
+  scripts/mapping_capture.py
+  scripts/generate_geotiff.py
+  scripts/export_3d_map.py
   DESTINATION lib/${PROJECT_NAME}
 )
 install(

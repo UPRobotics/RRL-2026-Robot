@@ -95,7 +95,7 @@ class Telemetry_publisher : public rclcpp::Node{
     }
 
     private:
-    std::string package_share_directory = ament_index_cpp::get_package_share_directory("telemetry_pkg");
+    std::string package_share_directory = ament_index_cpp::get_package_share_directory("robot_pkg");
     std::string path = package_share_directory + "/config/config.json";
 
     void telemetryCallback(const robot_msgs::msg::MotorTelemetry::SharedPtr msg, int configIndex) {
