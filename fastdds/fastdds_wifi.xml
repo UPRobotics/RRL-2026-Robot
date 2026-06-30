@@ -1,29 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  FastDDS WiFi profile — RRL 2026 Robot
-  ──────────────────────────────────────
-  Problemas que resuelve:
-    • Los access-points WiFi típicamente bloquean o degradan multicast UDP.
-      Fast-DDS usa multicast por defecto para descubrir participantes, lo que
-      puede causar que el robot y la estación nunca se "encuentren" o que la
-      latencia sea muy alta.
-    • Este perfil desactiva multicast y usa descubrimiento unicast con IPs
-      fijas, reduciendo drásticamente la latencia inicial de descubrimiento.
-
-  INSTRUCCIONES:
-    1. Copia/edita este archivo en ambas computadoras (robot y estación).
-    2. Reemplaza ROBOT_IP y STATION_IP con las IPs reales de tu red WiFi.
-    3. Antes de correr cualquier nodo: source fastdds/setup.sh
--->
+<!-- FastDDS WiFi profile — RRL 2026 Robot -->
 <profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
 
-  <!-- Transporte UDP personalizado: non-blocking para menor latencia -->
+  <!-- Transporte UDP personalizado -->
   <transport_descriptors>
     <transport_descriptor>
       <transport_id>udpv4_wifi</transport_id>
       <type>UDPv4</type>
       <non_blocking_send>true</non_blocking_send>
-      <!-- Buffers más pequeños = menos latencia de cola -->
       <sendBufferSize>1048576</sendBufferSize>
       <receiveBufferSize>4194304</receiveBufferSize>
       <maxMessageSize>65500</maxMessageSize>
@@ -33,36 +17,37 @@
   <participant profile_name="default_participant" is_default_profile="true">
     <rtps>
 
-      <!-- Usar solo nuestro transporte UDP personalizado (sin IPv6, sin lo) -->
       <userTransports>
         <transport_id>udpv4_wifi</transport_id>
       </userTransports>
       <useBuiltinTransports>false</useBuiltinTransports>
 
       <builtin>
-        <!-- Descubrimiento SIMPLE unicast: evita multicast en WiFi -->
+        <!-- Descubrimiento SIMPLE unicast -->
         <discovery_config>
           <discoveryProtocol>SIMPLE</discoveryProtocol>
-          <use_SIMPLE_EndpointDiscoveryProtocol>true</use_SIMPLE_EndpointDiscoveryProtocol>
-          <!-- Enviar más anuncios iniciales para sobrevivir pérdida de paquetes UDP -->
-          <initial_announcements>
+          
+          <!-- Corregido a CamelCase -->
+          <initialAnnouncements>
             <count>10</count>
             <period>
-              <nanosec>200000000</nanosec> <!-- 200 ms entre anuncios -->
+              <nanosec>200000000</nanosec> 
             </period>
-          </initial_announcements>
-          <!-- Período de re-anuncio más corto para reconexión rápida -->
-          <leaseDuration_announcementperiod>
+          </initialAnnouncements>
+          
+          <!-- Corregido a CamelCase estándar -->
+          <leaseAnnouncement>
             <sec>1</sec>
             <nanosec>0</nanosec>
-          </leaseDuration_announcementperiod>
+          </leaseAnnouncement>
+          
           <leaseDuration>
             <sec>10</sec>
             <nanosec>0</nanosec>
           </leaseDuration>
         </discovery_config>
 
-        <!-- Recibir descubrimiento en este puerto (unicast) -->
+        <!-- Recibir descubrimiento en este puerto -->
         <metatrafficUnicastLocatorList>
           <locator>
             <udpv4>
@@ -71,32 +56,31 @@
           </locator>
         </metatrafficUnicastLocatorList>
 
-        <!-- ═══ CAMBIAR ESTAS IPs ═══ -->
+        <!-- Fixed Unicast Targets -->
         <initialPeersList>
           <locator>
             <udpv4>
-              <address>192.168.0.254</address>   <!-- p.ej. 192.168.1.100 -->
+              <address>192.168.0.254</address>
               <port>7412</port>
             </udpv4>
           </locator>
           <locator>
             <udpv4>
-              <address>192.168.0.255</address> <!-- p.ej. 192.168.1.200 -->
+              <address>192.168.0.70</address>
+              <port>7412</port>
+            </udpv4>
+          </locator>
+          <locator>
+            <udpv4>
+              <address>192.168.0.50</address> 
               <port>7412</port>
             </udpv4>
           </locator>
         </initialPeersList>
-        <!-- ═══════════════════════════ -->
 
-        <!-- Desactivar multicast completamente -->
         <avoid_builtin_multicast>true</avoid_builtin_multicast>
       </builtin>
 
-      <!--
-        Latencia del heartbeat de escritura:
-        Valores bajos = el lector acusa recibo más rápido → menos espera en RELIABLE.
-        Para tópicos de control (BEST_EFFORT) esto no aplica, pero sí para config.
-      -->
       <allocation>
         <send_buffers>
           <preallocated_number>16</preallocated_number>
@@ -106,5 +90,4 @@
 
     </rtps>
   </participant>
-
 </profiles>

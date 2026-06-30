@@ -95,7 +95,11 @@ void BodyNode::onControlInput(const robot_msgs::msg::ControlInput::SharedPtr msg
 
         body_left_->setWithCustomLimits(left_cmd, 1500.0f, 0.30f);
         body_right_->setWithCustomLimits(right_cmd, 1500.0f, 0.30f);
-    } 
+    }else{
+
+	body_left_->set(0.0f);
+            body_right_->set(0.0f);
+	} 
 
     // --- 3. Flipper Control ---
     if (msg->mode == 1) { 
