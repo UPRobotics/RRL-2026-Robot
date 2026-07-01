@@ -2,13 +2,14 @@
 """
 ROS2 Magnetometer Sender Node
 Reads magnetometer data from serial port and publishes it once per second.
-Serial data format: "X: 77, Y: -165, Z: -546, Mag: 52.80 uT"
+Supports labeled text lines, CSV lines, and raw binary input.
 """
 
 import json
 import math
 import re
 import struct
+from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
@@ -21,7 +22,7 @@ class MagnetometerSender(Node):
         super().__init__('magnetometer_sender')
 
         # Declare parameters
-        self.declare_parameter('port', '/dev/ttyACM0')
+        self.declare_parameter('port', 'auto')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('timeout', 1.0)
 
@@ -34,6 +35,7 @@ class MagnetometerSender(Node):
 
         # Serial connection
         self.serial_connection = None
+        self.connected_port = None
 
         # Regex pattern for parsing magnetometer data
         # Format: X: 77, Y: -165, Z: -546, Mag: 52.80 uT
@@ -60,19 +62,47 @@ class MagnetometerSender(Node):
 
     def connect_serial(self):
         """Establish serial connection."""
+        port = self.resolve_port(self.port)
+        if not port:
+            self.get_logger().error(
+                'No serial device found. Set the port parameter explicitly '
+                'or plug in the magnetometer adapter.'
+            )
+            self.serial_connection = None
+            return
+
         try:
             self.serial_connection = serial.Serial(
-                port=self.port,
+                port=port,
                 baudrate=self.baudrate,
                 timeout=self.timeout,
                 parity=serial.PARITY_NONE,
                 stopbits=serial.STOPBITS_ONE,
                 bytesize=serial.EIGHTBITS,
             )
-            self.get_logger().info(f'Connected to {self.port}')
+            self.connected_port = port
+            self.get_logger().info(f'Connected to {port}')
         except serial.SerialException as e:
-            self.get_logger().error(f'Failed to connect to {self.port}: {e}')
+            self.get_logger().error(f'Failed to connect to {port}: {e}')
             self.serial_connection = None
+
+    def resolve_port(self, port):
+        """Resolve the serial port to use."""
+        if port and port != 'auto':
+            return port
+
+        by_id_dir = Path('/dev/serial/by-id')
+        if by_id_dir.exists():
+            candidates = sorted(p for p in by_id_dir.iterdir() if p.exists())
+            if candidates:
+                return str(candidates[0])
+
+        for pattern in ('/dev/ttyUSB*', '/dev/ttyACM*'):
+            candidates = sorted(Path('/dev').glob(pattern.replace('/dev/', '')))
+            if candidates:
+                return str(candidates[0])
+
+        return None
 
     def parse_text_line(self, line):
         """Parse a text line in format: X: 77, Y: -165, Z: -546, Mag: 52.80 uT"""
@@ -85,6 +115,22 @@ class MagnetometerSender(Node):
             unit = match.group(5)
             return {'x': x, 'y': y, 'z': z, 'magnitude': magnitude, 'unit': unit}
         return None
+
+    def parse_csv_line(self, line):
+        """Parse a CSV line in format: x,y,z."""
+        parts = [part.strip() for part in line.strip().split(',')]
+        if len(parts) != 3:
+            return None
+
+        try:
+            x = float(parts[0])
+            y = float(parts[1])
+            z = float(parts[2])
+        except ValueError:
+            return None
+
+        magnitude = math.sqrt(x * x + y * y + z * z)
+        return {'x': x, 'y': y, 'z': z, 'magnitude': magnitude, 'unit': 'uT'}
 
     def parse_binary_data(self, raw_data):
         """Try to parse binary data as X, Y, Z floats or int16s."""
@@ -129,6 +175,11 @@ class MagnetometerSender(Node):
 
                 if line:
                     data = self.parse_text_line(line)
+                    if data:
+                        self.latest_data = data
+                        return
+
+                    data = self.parse_csv_line(line)
                     if data:
                         self.latest_data = data
                         return

@@ -10,7 +10,7 @@ def generate_launch_description():
             name='magnetometer_sender',
             output='screen',
             parameters=[{
-                'port': '/dev/ttyACM0',
+                'port': 'auto',
                 'baudrate': 115200,
                 'timeout': 1.0,
             }],
